@@ -190,6 +190,8 @@ class CSMgr(commands.Cog):
         for m in members:
             repos = members[m]["repos"]
             owner = ctx.guild.get_member(m)
+            if not owner:
+                continue  # member not in server anymore
             for r in repos:
                 repo = repos[r]
 
