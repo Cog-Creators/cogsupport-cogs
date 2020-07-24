@@ -30,13 +30,14 @@ class CSMgr(commands.Cog):
         self.db.register_global(**default_global)
         self.session = aiohttp.ClientSession()
 
-    def __unload(self):
-        if not self.session.closed:
-            fut = asyncio.ensure_future(self.session.close())
-            yield from fut.__await__()
-
     async def initialize(self) -> None:
         await self._config_migration()
+
+    def cog_unload(self) -> None:
+        if not self.session.closed:
+            asyncio.create_task(self.session.close())
+
+    __del__ = cog_unload
 
     async def _config_migration(self) -> None:
         schema_version = await self.config.schema_version()
