@@ -376,10 +376,22 @@ class CSMgr(commands.Cog):
             ),
         }
 
+        # try to put the channel on proper position by assuming the channel list is alphabetical
+        if category.channels:
+            for channel in category.channels:
+                if channel.name > name:
+                    position = channel.position - 1
+                    break
+            else:
+                position = category.channels[-1].position
+        else:
+            position = None
+
         return await guild.create_text_channel(
             name,
             overwrites=overwrites,
             category=category,
+            position=position,
             reason=f"Adding a V3 cog support channel for {owner.name}",
         )
 
