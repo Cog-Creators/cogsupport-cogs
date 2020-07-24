@@ -1,18 +1,10 @@
 from redbot.core import commands
 
 from .discord_ids import (
-    COG_SUPPORT_SERVER_ID,
     CORE_DEV_ROLE_ID,
     QA_ROLE_ID,
     SENIOR_COG_CREATOR_ROLE_ID,
 )
-
-
-def is_cog_support_server():
-    async def predicate(ctx: commands.Context) -> bool:
-        return ctx.guild.id == COG_SUPPORT_SERVER_ID
-
-    return commands.check(predicate)
 
 
 def is_core_dev_or_qa():

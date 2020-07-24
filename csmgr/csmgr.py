@@ -9,7 +9,7 @@ from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.commands import NoParseOptional as Optional
 
-from .checks import is_cog_support_server, is_core_dev_or_qa, is_senior_cog_creator
+from .checks import is_core_dev_or_qa, is_senior_cog_creator
 from .discord_ids import (
     COG_CREATOR_ROLE_ID,
     COG_SUPPORT_SERVER_ID,
@@ -37,6 +37,10 @@ class CSMgr(commands.Cog):
         self.config.init_custom("REPO", 2)
         self.config.register_custom("REPO")
         self.session = aiohttp.ClientSession()
+
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        # commands in this cog should only run in Cog Support server
+        return ctx.guild is not None and ctx.guild.id == COG_SUPPORT_SERVER_ID
 
     async def initialize(self) -> None:
         await self._config_migration()
@@ -134,7 +138,6 @@ class CSMgr(commands.Cog):
     def senior_cog_creator_role(self):
         return self.cog_support_guild.get_role(SENIOR_COG_CREATOR_ROLE_ID)
 
-    @is_cog_support_server()
     @is_core_dev_or_qa()
     @commands.command()
     async def addcreator(
@@ -183,7 +186,6 @@ class CSMgr(commands.Cog):
         await member.add_roles(self.cog_creator_role)
         await ctx.send(f"Done. {member.mention} is now a cog creator!")
 
-    @is_cog_support_server()
     @is_core_dev_or_qa()
     @commands.command()
     async def grantsupport(
@@ -202,7 +204,6 @@ class CSMgr(commands.Cog):
 
         await self._grant_support_channel(ctx, member, repo, channel)
 
-    @is_cog_support_server()
     @is_core_dev_or_qa()
     @commands.command()
     async def makesenior(self, ctx: commands.Context, member: discord.Member, repo: Repo) -> None:
@@ -218,7 +219,6 @@ class CSMgr(commands.Cog):
         await member.add_roles(self.senior_cog_creator_role)
         await ctx.send(f"Done. {member.mention} is now senior cog creator!")
 
-    @is_cog_support_server()
     @is_senior_cog_creator()
     @commands.command()
     async def makeannouncement(
@@ -235,7 +235,6 @@ class CSMgr(commands.Cog):
         """
         pass
 
-    @is_cog_support_server()
     @is_core_dev_or_qa()
     @commands.command()
     async def makechannellist(self, ctx: commands.Context) -> None:
