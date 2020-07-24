@@ -146,7 +146,7 @@ class CSMgr(commands.Cog):
 
     @is_core_dev_or_qa()
     @commands.command()
-    async def reposlist(self, ctx: commands.Context) -> None:
+    async def reposlist(self, ctx: commands.GuildContext) -> None:
         """
         Show a list of all Cog Creators and their repos.
         """
@@ -176,7 +176,7 @@ class CSMgr(commands.Cog):
     @commands.command()
     async def addcreator(
         self,
-        ctx: commands.Context,
+        ctx: commands.GuildContext,
         member: discord.Member,
         url: str,
         channel: Optional[discord.TextChannel] = None,
@@ -217,14 +217,19 @@ class CSMgr(commands.Cog):
             repo.support_channel = channel
 
         await repo.save()
-        await member.add_roles(self.cog_creator_role)
+        try:
+            if not ctx.me.guild_permissions.manage_roles:
+                raise RuntimeError
+            await member.add_roles(self.cog_creator_role)
+        except (discord.Forbidden, RuntimeError):
+            await ctx.send("I wasn't able to add Cog Creator role.")
         await ctx.send(f"Done. {member.mention} is now a cog creator!")
 
     @is_core_dev_or_qa()
     @commands.command()
     async def grantsupport(
         self,
-        ctx: commands.Context,
+        ctx: commands.GuildContext,
         member: discord.Member,
         repo: Repo,
         channel: Optional[discord.TextChannel] = None,
@@ -240,7 +245,9 @@ class CSMgr(commands.Cog):
 
     @is_core_dev_or_qa()
     @commands.command()
-    async def makesenior(self, ctx: commands.Context, member: discord.Member, repo: Repo) -> None:
+    async def makesenior(
+        self, ctx: commands.GuildContext, member: discord.Member, repo: Repo
+    ) -> None:
         """
         Makes this user a senior cog creator
 
@@ -250,13 +257,18 @@ class CSMgr(commands.Cog):
             await self._grant_support_channel(ctx, member, repo)
         repo.creator_level = CreatorLevel.SENIOR_COG_CREATOR
         await repo.save()
-        await member.add_roles(self.senior_cog_creator_role)
+        try:
+            if not ctx.me.guild_permissions.manage_roles:
+                raise RuntimeError
+            await member.add_roles(self.senior_cog_creator_role)
+        except (discord.Forbidden, RuntimeError):
+            await ctx.send("I wasn't able to add Senior Cog Creator role.")
         await ctx.send(f"Done. {member.mention} is now senior cog creator!")
 
     @is_senior_cog_creator()
     @commands.command()
     async def makeannouncement(
-        self, ctx: commands.Context, repo: str, mention_users: bool = False, *, message: str
+        self, ctx: commands.GuildContext, repo: str, mention_users: bool = False, *, message: str
     ) -> None:
         """
         Make an announcement in your repo's news channel.
@@ -271,7 +283,7 @@ class CSMgr(commands.Cog):
 
     @is_core_dev_or_qa()
     @commands.command()
-    async def makechannellist(self, ctx: commands.Context) -> None:
+    async def makechannellist(self, ctx: commands.GuildContext) -> None:
         """
         Make a list of all support channels
         """
@@ -299,21 +311,34 @@ class CSMgr(commands.Cog):
         else:
             for embed in embeds:
                 await ctx.send(embed=embed)
-        await ctx.message.delete()
+
+        if not ctx.channel.permissions_for(ctx.me).manage_messages:
+            return
+        try:
+            await ctx.message.delete()
+        except discord.Forbidden:
+            pass
 
     async def _grant_support_channel(
         self,
-        ctx: commands.Context,
+        ctx: commands.GuildContext,
         member: discord.Member,
         repo: Repo,
         channel: Optional[discord.TextChannel] = None,
     ):
         if channel is not None:
             if channel.category != self.support_category_channel:
-                await channel.edit(
-                    category=self.support_category_channel,
-                    reason="Moving channel to V3 support category",
-                )
+                try:
+                    if not self.support_category_channel.permissions_for(ctx.me).manage_channels:
+                        raise RuntimeError
+                    await channel.edit(
+                        category=self.support_category_channel,
+                        reason="Moving channel to V3 support category",
+                    )
+                except (discord.Forbidden, RuntimeError):
+                    await ctx.send(
+                        "I wasn't able to move the support channel to V3 support category."
+                    )
             repo.support_channel = channel
             await repo.save()
             await ctx.send(
@@ -330,15 +355,32 @@ class CSMgr(commands.Cog):
 
         if channel is not None:
             if channel.category != self.support_category_channel:
-                await channel.edit(
-                    category=self.support_category_channel,
-                    reason="Moving channel to V3 support category",
+                try:
+                    if not self.support_category_channel.permissions_for(ctx.me).manage_channels:
+                        raise RuntimeError
+                    await channel.edit(
+                        category=self.support_category_channel,
+                        reason="Moving channel to V3 support category",
+                    )
+                except (discord.Forbidden, RuntimeError):
+                    msg = "I wasn't able to move the support channel to V3 support category."
+                else:
+                    msg = f"Existing channel ({channel.mention}) moved to the V3 support category."
+            else:
+                msg = (
+                    f"Support channel for {repo.name} from {repo.username}"
+                    f" set to {channel.mention}."
                 )
-            msg = f"Existing channel ({channel.mention}) moved to the V3 support category."
         else:
-            channel = await self.add_textchannel(
-                channel_name, ctx.guild, member, self.support_category_channel
-            )
+            try:
+                if not self.support_category_channel.permissions_for(ctx.me).manage_channels:
+                    raise RuntimeError
+                channel = await self.add_textchannel(
+                    channel_name, ctx.guild, member, self.support_category_channel
+                )
+            except (discord.Forbidden, RuntimeError):
+                await ctx.send("I wasn't able to create support channel.")
+                return
             msg = f"{channel.mention} has been created!"
         repo.support_channel = channel
         await repo.save()
