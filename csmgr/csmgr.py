@@ -4,7 +4,6 @@ import aiohttp
 import asyncio
 from urllib.parse import urlparse
 import discord
-from .gql import *
 
 from .checks import is_cog_support_server, is_core_dev_or_qa, is_senior_cog_creator
 from .discord_ids import (
@@ -15,7 +14,6 @@ from .discord_ids import (
     V3_COG_SUPPORT_CATEGORY_ID,
 )
 
-GH_API = "https://api.github.com/graphql"
 
 
 class CSMgr(commands.Cog):
@@ -37,13 +35,22 @@ class CSMgr(commands.Cog):
             fut = asyncio.ensure_future(self.session.close())
             yield from fut.__await__()
 
-    async def do_request(self, data: dict) -> dict:
-        token = await self.db.token()
-        async with self.session.post(
-            GH_API, json=data, headers={"Authorization": "Bearer {}".format(token)}
-        ) as r:
-            resp = await r.json()
-            return resp
+    async def initialize(self) -> None:
+        await self._config_migration()
+
+    async def _config_migration(self) -> None:
+        schema_version = await self.config.schema_version()
+        if schema_version == 0:
+            await self._migrate_schema_0_to_1()
+            await self.config.schema_version.set(1)
+
+    async def _migrate_schema_0_to_1(self) -> None:
+        # token migration
+        maybe_token = await self.config.get_raw("token", default=None)
+        if maybe_token is not None:
+            api_tokens = await self.bot.get_shared_api_tokens("github")
+            if not api_tokens.get("token", ""):
+                await self.bot.set_shared_api_tokens("github", token=maybe_token)
 
     @commands.command()
     @is_cog_support_server()
@@ -72,18 +79,10 @@ class CSMgr(commands.Cog):
         for c in ctx.guild.text_channels:
             if repository in c.name:
                 repo_data["channel"] = c.id
-        if service.lower() == "github":
-            data = await self.do_request(
-                {
-                    "query": USER_REPO_EXIST_QUERY,
-                    "variables": {"owner": username, "repository": repository},
-                }
-            )
-            if data["data"]["repository"] is None and "errors" in data:
-                for error in data["errors"]:
-                    if "type" in error and error["type"] == "NOT_FOUND":
-                        await ctx.send(error["message"])
-                        return
+        async with self.session.get(url, allow_redirects=False) as resp:
+            if service.lower() == "gitlab" and resp.status == 302 or resp.status == 404:
+                await ctx.send("Repo with the given URL doesn't exist.")
+                return
 
         await self.db.member(member).repos.set_raw(repository, value=repo_data)
         await member.add_roles(ctx.guild.get_role(COG_CREATOR_ROLE_ID))
@@ -204,17 +203,6 @@ class CSMgr(commands.Cog):
                 await ctx.send(embed=embed)
         await ctx.message.delete()
 
-    @commands.command()
-    @checks.is_owner()
-    async def setghtoken(self, ctx: commands.Context, token: str):
-        async with self.session.post(
-            GH_API, json={"query": TOKEN_TEST_QUERY}, headers={"Authorization": "Bearer " + token}
-        ) as r:
-            if r.status != 200:
-                await ctx.send("Something is wrong with that token. Please try again")
-                return
-        await self.db.token.set(token)
-        await ctx.send("Token set successfully")
 
     async def add_textchannel(
         self,
