@@ -6,38 +6,16 @@ from urllib.parse import urlparse
 import discord
 from .gql import *
 
-V3_COG_SUPPORT_CATEGORY_ID = 533567794978226176
-SENIOR_COG_CREATOR_ROLE_ID = 533275636387807262
-COG_CREATOR_ROLE_ID = 529359322140901377
-CORE_DEV_ROLE_ID = 595432395214422017
-QA_ROLE_ID = 477939350399746105
-OTHERCOGS_ID = 240212783503900673
+from .checks import is_cog_support_server, is_core_dev_or_qa, is_senior_cog_creator
+from .discord_ids import (
+    COG_CREATOR_ROLE_ID,
+    COG_SUPPORT_SERVER_ID,
+    OTHERCOGS_ID,
+    SENIOR_COG_CREATOR_ROLE_ID,
+    V3_COG_SUPPORT_CATEGORY_ID,
+)
 
 GH_API = "https://api.github.com/graphql"
-
-
-def is_core_dev_or_qa():
-    async def predicate(ctx):
-        return (
-            ctx.guild.get_role(CORE_DEV_ROLE_ID) in ctx.author.roles
-            or ctx.guild.get_role(QA_ROLE_ID) in ctx.author.roles
-        )
-
-    return commands.check(predicate)
-
-
-def is_cog_support_server():
-    async def predicate(ctx):
-        return ctx.guild.id == 240154543684321280
-
-    return commands.check(predicate)
-
-
-def is_senior_cog_creator():
-    async def predicate(ctx):
-        return ctx.guild.get_role(SENIOR_COG_CREATOR_ROLE_ID) in ctx.author.roles
-
-    return commands.check(predicate)
 
 
 class CSMgr(commands.Cog):
