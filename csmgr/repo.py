@@ -82,7 +82,7 @@ class Repo:
     @property
     def username(self) -> str:
         if self.user is None:
-            return f"Unknown ({self.user_id})"
+            return f"Creator unavailable ({self.user_id})"
         return self.user.name
 
     def to_dict(self) -> Dict[str, Any]:
