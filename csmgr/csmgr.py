@@ -314,14 +314,6 @@ class CSMgr(commands.Cog):
         category: discord.CategoryChannel,
     ):
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(
-                read_messages=True,
-                send_messages=True,
-                external_emojis=True,
-                read_message_history=True,
-                attach_files=True,
-                embed_links=True,
-            ),
             owner: discord.PermissionOverwrite(
                 manage_messages=True, manage_roles=True, manage_webhooks=True, manage_channels=True
             ),
