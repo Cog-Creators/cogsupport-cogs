@@ -135,6 +135,7 @@ class Repo:
                     for repo_name, data in repos.items()
                 ]
                 for user_id, repos in all_users.items()
+                if repos
             }
 
         if repo_name is None:

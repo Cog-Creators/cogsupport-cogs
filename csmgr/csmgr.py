@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 from typing import Any, Dict, List, Tuple
 
 import aiohttp
@@ -8,6 +9,7 @@ import yarl
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.commands import NoParseOptional as Optional
+from redbot.core.utils.menus import DEFAULT_CONTROLS, menu
 
 from .checks import is_core_dev_or_qa, is_senior_cog_creator
 from .discord_ids import (
@@ -109,6 +111,10 @@ class CSMgr(commands.Cog):
         await self.config.custom("REPO").set(to_save)
         await self.config.clear_all_members()
 
+    async def get_all_repos_flattened(self) -> List[Repo]:
+        all_users = await self.get_all_repos()
+        return [repo for repos in all_users.values() for repo in repos]
+
     async def get_all_repos(self) -> Dict[int, List[Repo]]:
         return await Repo.from_config(self.bot)
 
@@ -137,6 +143,34 @@ class CSMgr(commands.Cog):
     @property
     def senior_cog_creator_role(self):
         return self.cog_support_guild.get_role(SENIOR_COG_CREATOR_ROLE_ID)
+
+    @is_core_dev_or_qa()
+    @commands.command()
+    async def reposlist(self, ctx: commands.Context) -> None:
+        """
+        Show a list of all Cog Creators and their repos.
+        """
+        all_repos = await self.get_all_repos_flattened()
+        total_pages = math.ceil(len(all_repos) / 9)
+        pages = []
+        for idx, repo_group in enumerate(grouper(all_repos, 9), 1):
+            embed = discord.Embed(title="Repo list")
+            for repo in repo_group:
+                support_channel = (
+                    None if repo.support_channel is None else repo.support_channel.mention
+                )
+                embed.add_field(
+                    name=repo.name,
+                    value=(
+                        f"**Creator:**\n{repo.username}\n"
+                        f"**Creator level:**\n{repo.creator_level!s}\n"
+                        f"**Support channel:**\n{support_channel}\n"
+                        f"[Repo link]({repo.url})"
+                    ),
+                )
+            embed.set_footer(text=f"Page {idx}/{total_pages}")
+            pages.append(embed)
+        await menu(ctx, pages, DEFAULT_CONTROLS)
 
     @is_core_dev_or_qa()
     @commands.command()
@@ -241,9 +275,9 @@ class CSMgr(commands.Cog):
         """
         Make a list of all support channels
         """
-        all_users = await Repo.from_config(self.bot)
+        all_users = await self.get_all_repos()
         embeds: List[discord.Embed] = []
-        for user_id, repos in all_users.items():
+        for repos in all_users.values():
             for repo in repos:
                 embed = discord.Embed(title=repo.name)
                 embed.url = repo.url
