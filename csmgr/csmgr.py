@@ -1,11 +1,10 @@
 import asyncio
 import logging
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import aiohttp
 import discord
-import yarl
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.commands import NoParseOptional as Optional
@@ -19,8 +18,9 @@ from .discord_ids import (
     SENIOR_COG_CREATOR_ROLE_ID,
     V3_COG_SUPPORT_CATEGORY_ID,
 )
+from .discord_utils import add_textchannel, get_webhook, safe_add_role
 from .repo import CONFIG_COG_NAME, CONFIG_IDENTIFIER, CreatorLevel, Repo
-from .utils import grouper
+from .utils import grouper, parse_repo_url
 
 log = logging.getLogger("red.cogsupport-cogs.csmgr")
 
@@ -193,7 +193,7 @@ class CSMgr(commands.Cog):
             await ctx.send("That user has already been marked as a cog creator")
             return
 
-        service, username, repo_name = self.parse_url(url)
+        service, repo_owner, repo_name = parse_repo_url(url)
         async with self.session.get(url, allow_redirects=False) as resp:
             if service.lower() == "gitlab" and resp.status == 302 or resp.status == 404:
                 await ctx.send("Repo with the given URL doesn't exist.")
@@ -204,25 +204,12 @@ class CSMgr(commands.Cog):
             repo_name=repo_name,
             repo_url=url,
             user_id=member.id,
-            support_channel_id=None if channel is None else channel.id,
+            support_channel_id=None,
         )
-
-        if repo.support_channel_id is None:
-            channel_name = f"support_{repo.name.lower()}"
-            for channel in ctx.guild.text_channels:
-                if channel.name == channel_name:
-                    break
-            else:
-                channel = None
-            repo.support_channel = channel
-
+        await self._find_support_channel(ctx, repo, channel)
         await repo.save()
-        try:
-            if not ctx.me.guild_permissions.manage_roles:
-                raise RuntimeError
-            await member.add_roles(self.cog_creator_role)
-        except (discord.Forbidden, RuntimeError):
-            await ctx.send("I wasn't able to add Cog Creator role.")
+
+        await safe_add_role(ctx, member, self.senior_cog_creator_role)
         await ctx.send(f"Done. {member.mention} is now a cog creator!")
 
     @is_core_dev_or_qa()
@@ -255,14 +242,11 @@ class CSMgr(commands.Cog):
         """
         if repo.support_channel is None:
             await self._grant_support_channel(ctx, member, repo)
+
         repo.creator_level = CreatorLevel.SENIOR_COG_CREATOR
         await repo.save()
-        try:
-            if not ctx.me.guild_permissions.manage_roles:
-                raise RuntimeError
-            await member.add_roles(self.senior_cog_creator_role)
-        except (discord.Forbidden, RuntimeError):
-            await ctx.send("I wasn't able to add Senior Cog Creator role.")
+
+        await safe_add_role(ctx, member, self.senior_cog_creator_role)
         await ctx.send(f"Done. {member.mention} is now senior cog creator!")
 
     @is_senior_cog_creator()
@@ -304,7 +288,7 @@ class CSMgr(commands.Cog):
                 embed.add_field(name="Support channel", value=support_channel, inline=False)
                 embeds.append(embed)
 
-        webhook = await self._get_webhook(ctx.channel)
+        webhook = await get_webhook(ctx.channel)
         if webhook is not None:
             for embed_group in grouper(embeds, 10):
                 await webhook.send(embeds=embed_group)
@@ -325,124 +309,86 @@ class CSMgr(commands.Cog):
         member: discord.Member,
         repo: Repo,
         channel: Optional[discord.TextChannel] = None,
-    ):
-        if channel is not None:
-            if channel.category != self.support_category_channel:
-                try:
-                    if not self.support_category_channel.permissions_for(ctx.me).manage_channels:
-                        raise RuntimeError
-                    await channel.edit(
-                        category=self.support_category_channel,
-                        reason="Moving channel to V3 support category",
-                    )
-                except (discord.Forbidden, RuntimeError):
-                    await ctx.send(
-                        "I wasn't able to move the support channel to V3 support category."
-                    )
-            repo.support_channel = channel
-            await repo.save()
-            await ctx.send(
-                f"Support channel for {repo.name} from {repo.username} set to {channel.mention}."
-            )
+    ) -> None:
+        """
+        Grants support channel for given `member`.
+
+        If `channel` is given it's used as a granted support channel.
+        Otherwise this method tries to find existing channel
+        or creates a new one if one doesn't exist already.
+
+        This method provides feedback using `ctx.send()`.
+        """
+        if await self._find_support_channel(ctx, repo, channel) is not None:
             return
 
         channel_name = f"support_{repo.name.lower()}"
-        for channel in ctx.guild.text_channels:
-            if channel.name == channel_name:
-                break
-        else:
-            channel = None
 
-        if channel is not None:
-            if channel.category != self.support_category_channel:
-                try:
-                    if not self.support_category_channel.permissions_for(ctx.me).manage_channels:
-                        raise RuntimeError
-                    await channel.edit(
-                        category=self.support_category_channel,
-                        reason="Moving channel to V3 support category",
-                    )
-                except (discord.Forbidden, RuntimeError):
-                    msg = "I wasn't able to move the support channel to V3 support category."
-                else:
-                    msg = f"Existing channel ({channel.mention}) moved to the V3 support category."
+        channel = await add_textchannel(ctx, channel_name, member, self.support_category_channel)
+        if channel is None:
+            return
+
+        repo.support_channel = channel
+        await repo.save()
+        await ctx.send(f"{channel.mention} has been created!")
+
+    async def _find_support_channel(
+        self, ctx: commands.GuildContext, repo: Repo, channel: Optional[discord.TextChannel]
+    ) -> Optional[discord.TextChannel]:
+        """
+        Finds existing support channel or uses provided `channel` and saves it to provided `repo`.
+
+        This method provides feedback using `ctx.send()`.
+
+        Returns found channel or `None` if the channel wasn't found.
+        """
+        if channel is None:
+            channel_name = f"support_{repo.name.lower()}"
+            for channel in ctx.guild.text_channels:
+                if channel.name == channel_name:
+                    break
             else:
-                msg = (
-                    f"Support channel for {repo.name} from {repo.username}"
-                    f" set to {channel.mention}."
-                )
+                return None
+
+        if (result := await self._fix_support_channel(ctx, channel)) is True:
+            msg = f"Existing channel ({channel.mention}) moved to the V3 support category."
+        elif result is False:
+            msg = "I wasn't able to move the support channel to V3 support category."
         else:
-            try:
-                if not self.support_category_channel.permissions_for(ctx.me).manage_channels:
-                    raise RuntimeError
-                channel = await self.add_textchannel(
-                    channel_name, ctx.guild, member, self.support_category_channel
-                )
-            except (discord.Forbidden, RuntimeError):
-                await ctx.send("I wasn't able to create support channel.")
-                return
-            msg = f"{channel.mention} has been created!"
+            msg = (
+                f"Support channel for {repo.name} from {repo.username}"
+                f" set to {channel.mention}."
+            )
+
         repo.support_channel = channel
         await repo.save()
         await ctx.send(msg)
 
-    async def _get_webhook(self, channel: discord.TextChannel) -> Optional[discord.Webhook]:
-        guild = channel.guild
-        if not channel.permissions_for(guild.me).manage_webhooks:
+        return channel
+
+    async def _fix_support_channel(
+        self, ctx: commands.GuildContext, channel: discord.TextChannel
+    ) -> Optional[bool]:
+        """Changes channel's category if needed.
+
+        This method DOES NOT provide feedback using `ctx.send()`.
+
+        Returns:
+        - `False` on failure
+        - `True` on success
+        - `None` if the method didn't need to do anything
+        """
+        if channel.category == self.support_category_channel:
             return None
+
+        if not self.support_category_channel.permissions_for(ctx.me).manage_channels:
+            return False
+
         try:
-            webhooks = await channel.webhooks()
-        except discord.Forbidden:
-            return None
-        for webhook in webhooks:
-            if webhook.name == "Cog Support channel guide":
-                break
-        else:
-            webhook = await channel.create_webhook(
-                name="Cog Support channel guide",
-                avatar=await guild.icon_url.read(),
-                reason="Generating channel list",
+            await channel.edit(
+                category=self.support_category_channel,
+                reason="Moving channel to V3 support category",
             )
-        return webhook
-
-    async def add_textchannel(
-        self,
-        name: str,
-        guild: discord.Guild,
-        owner: discord.Member,
-        category: discord.CategoryChannel,
-    ) -> discord.TextChannel:
-        overwrites = {
-            owner: discord.PermissionOverwrite(
-                manage_messages=True, manage_roles=True, manage_webhooks=True, manage_channels=True
-            ),
-        }
-
-        # try to put the channel on proper position by assuming the channel list is alphabetical
-        if category.channels:
-            for channel in category.channels:
-                if channel.name > name:
-                    position = channel.position - 1
-                    break
-            else:
-                position = category.channels[-1].position
-        else:
-            position = None
-
-        return await guild.create_text_channel(
-            name,
-            overwrites=overwrites,
-            category=category,
-            position=position,
-            reason=f"Adding a V3 cog support channel for {owner.name}",
-        )
-
-    def parse_url(self, url: str) -> Tuple[str, str, str]:
-        parsed = yarl.URL(url)
-
-        assert isinstance(parsed.host, str), "mypy"
-        service = parsed.host.rsplit(".", maxsplit=2)[-2]
-
-        username, repository = parsed.parts[1:3]
-
-        return service, username, repository
+        except discord.Forbidden:
+            return False
+        return True

@@ -1,5 +1,7 @@
 import itertools
-from typing import Callable, Generic, Iterable, Iterator, List, Optional, TypeVar
+from typing import Callable, Generic, Iterable, Iterator, List, Optional, Tuple, TypeVar
+
+import yarl
 
 _T = TypeVar("_T")
 
@@ -26,3 +28,17 @@ def grouper(iterable: Iterable[_T], n: int) -> Iterator[List[_T]]:
         except StopIteration:
             return
         yield list(itertools.islice(itertools.chain((first_item,), iterator), n))
+
+
+def parse_repo_url(url: str) -> Tuple[str, str, str]:
+    """
+    Parses given repo URL and returns 3-tuple of service name, repo owner, and repo name.
+    """
+    parsed = yarl.URL(url)
+
+    assert isinstance(parsed.host, str), "mypy"
+    service_name = parsed.host.rsplit(".", maxsplit=2)[-2]
+
+    repo_owner, repo_name = parsed.parts[1:3]
+
+    return service_name, repo_owner, repo_name
