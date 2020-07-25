@@ -134,14 +134,21 @@ class CSMgr(commands.Cog):
     def senior_cog_creator_role(self):
         return self.cog_support_guild.get_role(SENIOR_COG_CREATOR_ROLE_ID)
 
-    @commands.command()
     @is_cog_support_server()
     @is_core_dev_or_qa()
-    async def addcreator(self, ctx: commands.Context, member: discord.Member, url: str):
+    @commands.command()
+    async def addcreator(
+        self,
+        ctx: commands.Context,
+        member: discord.Member,
+        url: str,
+        channel: Optional[discord.TextChannel] = None,
+    ) -> None:
         """
         Register a new cog creator
 
         `url` should be a link to the repository
+        You can pass a channel if one already exists.
         """
         # XXX: hmm, this limitation doesn't make *that* much sense,
         # XXX: but some data would need to be moved elsewhere if I were to remove this
@@ -160,15 +167,17 @@ class CSMgr(commands.Cog):
             repo_name=repo_name,
             repo_url=url,
             user_id=member.id,
+            support_channel_id=None if channel is None else channel.id,
         )
 
-        channel_name = f"support_{repo.name.lower()}"
-        for channel in ctx.guild.text_channels:
-            if channel.name == channel_name:
-                break
-        else:
-            channel = None
-        repo.support_channel = channel
+        if repo.support_channel_id is None:
+            channel_name = f"support_{repo.name.lower()}"
+            for channel in ctx.guild.text_channels:
+                if channel.name == channel_name:
+                    break
+            else:
+                channel = None
+            repo.support_channel = channel
 
         await repo.save()
         await member.add_roles(self.cog_creator_role)
@@ -182,6 +191,7 @@ class CSMgr(commands.Cog):
         ctx: commands.Context,
         member: discord.Member,
         repo: Repo,
+        channel: Optional[discord.TextChannel] = None,
     ) -> None:
         """
         Grants this user a support channel. Must already be a cog creator
@@ -190,7 +200,7 @@ class CSMgr(commands.Cog):
             await ctx.send("It appears a channel already exists for that repo!")
             return
 
-        await self._grant_support_channel(ctx, member, repo)
+        await self._grant_support_channel(ctx, member, repo, channel)
 
     @is_cog_support_server()
     @is_core_dev_or_qa()
@@ -263,7 +273,21 @@ class CSMgr(commands.Cog):
         ctx: commands.Context,
         member: discord.Member,
         repo: Repo,
+        channel: Optional[discord.TextChannel] = None,
     ):
+        if channel is not None:
+            if channel.category != self.support_category_channel:
+                await channel.edit(
+                    category=self.support_category_channel,
+                    reason="Moving channel to V3 support category",
+                )
+            repo.support_channel = channel
+            await repo.save()
+            await ctx.send(
+                f"Support channel for {repo.name} from {repo.username} set to {channel.mention}."
+            )
+            return
+
         channel_name = f"support_{repo.name.lower()}"
         for channel in ctx.guild.text_channels:
             if channel.name == channel_name:
@@ -312,7 +336,7 @@ class CSMgr(commands.Cog):
         guild: discord.Guild,
         owner: discord.Member,
         category: discord.CategoryChannel,
-    ):
+    ) -> discord.TextChannel:
         overwrites = {
             owner: discord.PermissionOverwrite(
                 manage_messages=True, manage_roles=True, manage_webhooks=True, manage_channels=True
@@ -323,7 +347,7 @@ class CSMgr(commands.Cog):
             name,
             overwrites=overwrites,
             category=category,
-            reason="Adding a V3 cog support channel for " + owner.name,
+            reason=f"Adding a V3 cog support channel for {owner.name}",
         )
 
     def parse_url(self, url: str) -> Tuple[str, str, str]:
