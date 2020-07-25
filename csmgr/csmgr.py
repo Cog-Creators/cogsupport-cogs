@@ -1,43 +1,28 @@
-from redbot.core import commands, checks, Config
-from redbot.core.bot import Red
-import aiohttp
 import asyncio
-from urllib.parse import urlparse
+import logging
+import math
+from typing import Any, Dict, List
+
+import aiohttp
 import discord
-from .gql import *
+from redbot.core import commands, Config
+from redbot.core.bot import Red
+from redbot.core.commands import NoParseOptional as Optional
+from redbot.core.utils.menus import DEFAULT_CONTROLS, menu
 
-V3_COG_SUPPORT_CATEGORY_ID = 533567794978226176
-SENIOR_COG_CREATOR_ROLE_ID = 533275636387807262
-COG_CREATOR_ROLE_ID = 529359322140901377
-CORE_DEV_ROLE_ID = 595432395214422017
-QA_ROLE_ID = 477939350399746105
-OTHERCOGS_ID = 240212783503900673
+from .checks import is_core_dev_or_qa, is_senior_cog_creator
+from .discord_ids import (
+    COG_CREATOR_ROLE_ID,
+    COG_SUPPORT_SERVER_ID,
+    OTHERCOGS_ID,
+    SENIOR_COG_CREATOR_ROLE_ID,
+    V3_COG_SUPPORT_CATEGORY_ID,
+)
+from .discord_utils import add_textchannel, get_webhook, safe_add_role
+from .repo import CONFIG_COG_NAME, CONFIG_IDENTIFIER, CreatorLevel, Repo
+from .utils import grouper, parse_repo_url
 
-GH_API = "https://api.github.com/graphql"
-
-
-def is_core_dev_or_qa():
-    async def predicate(ctx):
-        return (
-            ctx.guild.get_role(CORE_DEV_ROLE_ID) in ctx.author.roles
-            or ctx.guild.get_role(QA_ROLE_ID) in ctx.author.roles
-        )
-
-    return commands.check(predicate)
-
-
-def is_cog_support_server():
-    async def predicate(ctx):
-        return ctx.guild.id == 240154543684321280
-
-    return commands.check(predicate)
-
-
-def is_senior_cog_creator():
-    async def predicate(ctx):
-        return ctx.guild.get_role(SENIOR_COG_CREATOR_ROLE_ID) in ctx.author.roles
-
-    return commands.check(predicate)
+log = logging.getLogger("red.cogsupport-cogs.csmgr")
 
 
 class CSMgr(commands.Cog):
@@ -45,234 +30,365 @@ class CSMgr(commands.Cog):
     Cog support server manager
     """
 
-    def __init__(self, bot: Red):
+    def __init__(self, bot: Red) -> None:
+        super().__init__()
         self.bot = bot
-        self.db = Config.get_conf(self, identifier=59595922, force_registration=True)
-        default_member = {"repos": {}}
-        default_global = {"repos": {}, "token": ""}
-        self.db.register_member(**default_member)
-        self.db.register_global(**default_global)
+        self.config = Config.get_conf(None, identifier=CONFIG_IDENTIFIER, cog_name=CONFIG_COG_NAME)
+        self.config.register_global(schema_version=0)
+        # {USER_ID: {LOWERED_REPO_NAME: {}}}
+        self.config.init_custom("REPO", 2)
+        self.config.register_custom("REPO")
         self.session = aiohttp.ClientSession()
 
-    def __unload(self):
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        # commands in this cog should only run in Cog Support server
+        return ctx.guild is not None and ctx.guild.id == COG_SUPPORT_SERVER_ID
+
+    async def initialize(self) -> None:
+        await self._config_migration()
+
+    def cog_unload(self) -> None:
         if not self.session.closed:
-            fut = asyncio.ensure_future(self.session.close())
-            yield from fut.__await__()
+            asyncio.create_task(self.session.close())
 
-    async def do_request(self, data: dict) -> dict:
-        token = await self.db.token()
-        async with self.session.post(
-            GH_API, json=data, headers={"Authorization": "Bearer {}".format(token)}
-        ) as r:
-            resp = await r.json()
-            return resp
+    __del__ = cog_unload
 
-    @commands.command()
-    @is_cog_support_server()
+    async def _config_migration(self) -> None:
+        schema_version = await self.config.schema_version()
+        if schema_version == 0:
+            await self._migrate_schema_0_to_1()
+            await self.config.schema_version.set(1)
+
+    async def _migrate_schema_0_to_1(self) -> None:
+        # token migration
+        maybe_token = await self.config.get_raw("token", default=None)
+        if maybe_token is not None:
+            api_tokens = await self.bot.get_shared_api_tokens("github")
+            if not api_tokens.get("token", ""):
+                await self.bot.set_shared_api_tokens("github", token=maybe_token)
+
+        # repo data migration
+
+        # old format
+        service_urls = {
+            "github": "https://github.com",
+            "gitlab": "https://gitlab.com",
+            "bitbucket": "https://bitbucket.org",
+        }
+        creator_levels = {
+            "cog creator": CreatorLevel.COG_CREATOR,
+            "senior cog creator": CreatorLevel.SENIOR_COG_CREATOR,
+        }
+
+        members = await self.config.all_members()
+        # this cog is only working in one guild anyway, so this works
+        user_data = members.get(COG_SUPPORT_SERVER_ID)
+        if user_data is None:
+            return
+
+        to_save: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        for user_id, data in user_data.items():
+            user_repos_to_save = to_save[str(user_id)] = {}
+            repos = data["repos"]
+
+            for repo_name, repo_data in repos.items():
+                repo_url = "/".join(
+                    (service_urls[repo_data["service"]], repo_data["username"], repo_name)
+                )
+                creator_level = creator_levels[repo_data["creator_level"]]
+
+                repo = Repo(
+                    bot=self.bot,
+                    repo_name=repo_data["repository"],
+                    repo_url=repo_url,
+                    user_id=user_id,
+                    creator_level=creator_level,
+                    support_channel_id=repo_data["channel"] or None,
+                )
+
+                user_repos_to_save[repo.config_identifiers[1]] = repo.to_dict()
+
+        await self.config.custom("REPO").set(to_save)
+        await self.config.clear_all_members()
+
+    async def get_all_repos_flattened(self) -> List[Repo]:
+        all_users = await self.get_all_repos()
+        return [repo for repos in all_users.values() for repo in repos]
+
+    async def get_all_repos(self) -> Dict[int, List[Repo]]:
+        return await Repo.from_config(self.bot)
+
+    async def get_user_repos(self, user_id: int) -> List[Repo]:
+        return await Repo.from_config(self.bot, user_id)
+
+    async def get_repo(self, user_id: int, repo_name: str) -> Repo:
+        return await Repo.from_config(self.bot, user_id, repo_name)
+
+    @property
+    def cog_support_guild(self):
+        return self.bot.get_guild(COG_SUPPORT_SERVER_ID)
+
+    @property
+    def default_support_channel(self) -> discord.TextChannel:
+        return self.bot.get_channel(OTHERCOGS_ID)
+
+    @property
+    def support_category_channel(self) -> discord.CategoryChannel:
+        return self.bot.get_channel(V3_COG_SUPPORT_CATEGORY_ID)
+
+    @property
+    def cog_creator_role(self):
+        return self.cog_support_guild.get_role(COG_CREATOR_ROLE_ID)
+
+    @property
+    def senior_cog_creator_role(self):
+        return self.cog_support_guild.get_role(SENIOR_COG_CREATOR_ROLE_ID)
+
     @is_core_dev_or_qa()
-    async def addcreator(self, ctx: commands.Context, member: discord.Member, url: str):
+    @commands.command()
+    async def reposlist(self, ctx: commands.GuildContext) -> None:
+        """
+        Show a list of all Cog Creators and their repos.
+        """
+        all_repos = await self.get_all_repos_flattened()
+        total_pages = math.ceil(len(all_repos) / 9)
+        pages = []
+        for idx, repo_group in enumerate(grouper(all_repos, 9), 1):
+            embed = discord.Embed(title="Repo list")
+            for repo in repo_group:
+                support_channel = (
+                    None if repo.support_channel is None else repo.support_channel.mention
+                )
+                embed.add_field(
+                    name=repo.name,
+                    value=(
+                        f"**Creator:**\n{repo.username}\n"
+                        f"**Creator level:**\n{repo.creator_level!s}\n"
+                        f"**Support channel:**\n{support_channel}\n"
+                        f"[Repo link]({repo.url})"
+                    ),
+                )
+            embed.set_footer(text=f"Page {idx}/{total_pages}")
+            pages.append(embed)
+        await menu(ctx, pages, DEFAULT_CONTROLS)
+
+    @is_core_dev_or_qa()
+    @commands.command()
+    async def addcreator(
+        self,
+        ctx: commands.GuildContext,
+        member: discord.Member,
+        url: str,
+        channel: Optional[discord.TextChannel] = None,
+    ) -> None:
         """
         Register a new cog creator
 
         `url` should be a link to the repository
+        You can pass a channel if one already exists.
         """
-        if await self.db.member(member).repos():
+        # XXX: hmm, this limitation doesn't make *that* much sense,
+        # XXX: but some data would need to be moved elsewhere if I were to remove this
+        if await self.config.custom("REPO", str(member.id)).all():
             await ctx.send("That user has already been marked as a cog creator")
             return
-        service, username, repository = self.parse_url(url)
 
-        repo_data = {
-            "service": service,
-            "username": username,
-            "repository": repository,
-            "creator_level": "cog creator",
-            "channel": 0,
-            "news_channel": 0,
-            "news_role": 0,
-        }
+        service, repo_owner, repo_name = parse_repo_url(url)
+        async with self.session.get(url, allow_redirects=False) as resp:
+            if service.lower() == "gitlab" and resp.status == 302 or resp.status == 404:
+                await ctx.send("Repo with the given URL doesn't exist.")
+                return
 
-        for c in ctx.guild.text_channels:
-            if repository in c.name:
-                repo_data["channel"] = c.id
-        if service.lower() == "github":
-            data = await self.do_request(
-                {
-                    "query": USER_REPO_EXIST_QUERY,
-                    "variables": {"owner": username, "repository": repository},
-                }
-            )
-            if data["data"]["repository"] is None and "errors" in data:
-                for error in data["errors"]:
-                    if "type" in error and error["type"] == "NOT_FOUND":
-                        await ctx.send(error["message"])
-                        return
+        repo = Repo(
+            bot=self.bot,
+            repo_name=repo_name,
+            repo_url=url,
+            user_id=member.id,
+            support_channel_id=None,
+        )
+        await self._find_support_channel(ctx, repo, channel)
+        await repo.save()
 
-        await self.db.member(member).repos.set_raw(repository, value=repo_data)
-        await member.add_roles(ctx.guild.get_role(COG_CREATOR_ROLE_ID))
+        await safe_add_role(ctx, member, self.senior_cog_creator_role)
         await ctx.send(f"Done. {member.mention} is now a cog creator!")
 
-    @commands.command()
-    @is_cog_support_server()
     @is_core_dev_or_qa()
-    async def grantsupport(self, ctx: commands.Context, member: discord.Member, repo: str):
+    @commands.command()
+    async def grantsupport(
+        self,
+        ctx: commands.GuildContext,
+        member: discord.Member,
+        repo: Repo,
+        channel: Optional[discord.TextChannel] = None,
+    ) -> None:
         """
         Grants this user a support channel. Must already be a cog creator
         """
-        try:
-            cid = await self.db.member(member).repos.get_raw(repo, "channel")
-        except KeyError:
-            await ctx.send("That repo has not been registered yet!")
-            return
-        if cid != 0 and ctx.guild.get_channel(cid):
+        if repo.support_channel is not None:
             await ctx.send("It appears a channel already exists for that repo!")
             return
-        chan_name = "support_" + repo.lower()
-        chan = None
-        for channel in ctx.guild.text_channels:
-            if channel.name == chan_name:
-                chan = channel
-                break
-        cat = ctx.guild.get_channel(V3_COG_SUPPORT_CATEGORY_ID)
-        if chan:
-            await chan.edit(category=cat, reason="Moving channel to V3 support category")
-            await ctx.send("Existing channel moved to the V3 support category.")
-        else:
-            chan = await self.add_textchannel(chan_name, ctx.guild, member, cat)
-            await ctx.send(chan.mention + " has been created!")
-        await self.db.member(member).repos.set_raw(repo, "channel", value=chan.id)
 
-    @commands.command()
-    @is_cog_support_server()
+        await self._grant_support_channel(ctx, member, repo, channel)
+
     @is_core_dev_or_qa()
-    async def makesenior(self, ctx: commands.Context, member: discord.Member, repo: str):
+    @commands.command()
+    async def makesenior(
+        self, ctx: commands.GuildContext, member: discord.Member, repo: Repo
+    ) -> None:
         """
         Makes this user a senior cog creator
-        """
-        try:
-            cid = await self.db.member(member).repos.get_raw(repo, "channel")
-        except KeyError:
-            await ctx.send("That repo isn't registered yet!")
-        if cid == 0:
-            await self.add_textchannel(
-                "support_" + repo,
-                ctx.guild,
-                member,
-                ctx.guild.get_channel(V3_COG_SUPPORT_CATEGORY_ID),
-            )
-        await self.db.member(member).repos.set_raw(
-            repo, "creator_level", value="senior cog creator"
-        )
-        await member.add_roles(ctx.guild.get_role(SENIOR_COG_CREATOR_ROLE_ID))
 
-    @commands.command()
-    @is_cog_support_server()
+        This command will also make a support channel for the given cog creator.
+        """
+        if repo.support_channel is None:
+            await self._grant_support_channel(ctx, member, repo)
+
+        repo.creator_level = CreatorLevel.SENIOR_COG_CREATOR
+        await repo.save()
+
+        await safe_add_role(ctx, member, self.senior_cog_creator_role)
+        await ctx.send(f"Done. {member.mention} is now senior cog creator!")
+
     @is_senior_cog_creator()
+    @commands.command()
     async def makeannouncement(
-        self, ctx: commands.Context, repo: str, mention_users: bool = False, *, message: str
-    ):
+        self, ctx: commands.GuildContext, repo: str, mention_users: bool = False, *, message: str
+    ) -> None:
         """
         Make an announcement in your repo's news channel.
 
         repo needs to be the name of your repo
 
         mention_users, if set to True, will mention everyone when making the announcement
+
+        This command doesn't do anything right now.
         """
         pass
 
-    @commands.command()
-    @is_cog_support_server()
     @is_core_dev_or_qa()
-    async def makechannellist(self, ctx: commands.Context):
+    @commands.command()
+    async def makechannellist(self, ctx: commands.GuildContext) -> None:
         """
         Make a list of all support channels
         """
-        members = await self.db.all_members(ctx.guild)
-        for m in members:
-            repos = members[m]["repos"]
-            owner = ctx.guild.get_member(m)
-            if not owner:
-                continue  # member not in server anymore
-            for r in repos:
-                repo = repos[r]
-
-                support_channel = ctx.guild.get_channel(repo["channel"])
-                repo_name = repo["repository"]
-                if repo["service"] == "github":
-                    url = "/".join(["https://github.com", repo["username"], repo_name])
-                elif repo["service"] == "gitlab":
-                    url = "/".join(["https://gitlab.com", repo["username"], repo_name])
-                elif repo["service"] == "bitbucket":
-                    url = "/".join(["https://bitbucket.org", repo["username"], repo_name])
-                else:
-                    url = "Unknown"
-                embed = discord.Embed(title=repo_name)
-                if url != "Unknown":
-                    embed.url = url
-                else:
-                    embed.add_field(name="URL", value=url, inline=False)
+        all_users = await self.get_all_repos()
+        embeds: List[discord.Embed] = []
+        for repos in all_users.values():
+            for repo in repos:
+                embed = discord.Embed(title=repo.name)
+                embed.url = repo.url
                 embed.set_author(
-                    name=f"{owner.name} - {repo['creator_level']}", icon_url=owner.avatar_url
+                    name=f"{repo.username} - {repo.creator_level!s}",
+                    icon_url=discord.Embed.Empty if repo.user is None else repo.user.avatar_url,
                 )
-                if isinstance(support_channel, discord.TextChannel):
-                    embed.add_field(
-                        name="Support channel", value=support_channel.mention, inline=False
-                    )
+                if repo.support_channel is not None:
+                    support_channel = repo.support_channel.mention
                 else:
-                    embed.add_field(
-                        name="Support channel",
-                        value=ctx.guild.get_channel(OTHERCOGS_ID).mention,
-                        inline=False,
-                    )
+                    support_channel = self.default_support_channel.mention
+                embed.add_field(name="Support channel", value=support_channel, inline=False)
+                embeds.append(embed)
+
+        webhook = await get_webhook(ctx.channel)
+        if webhook is not None:
+            for embed_group in grouper(embeds, 10):
+                await webhook.send(embeds=embed_group)
+        else:
+            for embed in embeds:
                 await ctx.send(embed=embed)
-        await ctx.message.delete()
 
-    @commands.command()
-    @checks.is_owner()
-    async def setghtoken(self, ctx: commands.Context, token: str):
-        async with self.session.post(
-            GH_API, json={"query": TOKEN_TEST_QUERY}, headers={"Authorization": "Bearer " + token}
-        ) as r:
-            if r.status != 200:
-                await ctx.send("Something is wrong with that token. Please try again")
-                return
-        await self.db.token.set(token)
-        await ctx.send("Token set successfully")
+        if not ctx.channel.permissions_for(ctx.me).manage_messages:
+            return
+        try:
+            await ctx.message.delete()
+        except discord.Forbidden:
+            pass
 
-    async def add_textchannel(
+    async def _grant_support_channel(
         self,
-        name: str,
-        guild: discord.Guild,
-        owner: discord.Member,
-        category: discord.CategoryChannel,
-    ):
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(
-                read_messages=True,
-                send_messages=True,
-                external_emojis=True,
-                read_message_history=True,
-                attach_files=True,
-                embed_links=True,
-            ),
-            owner: discord.PermissionOverwrite(
-                manage_messages=True, manage_roles=True, manage_webhooks=True, manage_channels=True
-            ),
-        }
+        ctx: commands.GuildContext,
+        member: discord.Member,
+        repo: Repo,
+        channel: Optional[discord.TextChannel] = None,
+    ) -> None:
+        """
+        Grants support channel for given `member`.
 
-        return await guild.create_text_channel(
-            name,
-            overwrites=overwrites,
-            category=category,
-            reason="Adding a V3 cog support channel for " + owner.name,
-        )
+        If `channel` is given it's used as a granted support channel.
+        Otherwise this method tries to find existing channel
+        or creates a new one if one doesn't exist already.
 
-    def parse_url(self, url: str):
-        parsed = urlparse(url)
+        This method provides feedback using `ctx.send()`.
+        """
+        if await self._find_support_channel(ctx, repo, channel) is not None:
+            return
 
-        service = parsed.netloc.split("www.")[-1].split(".")[0]
+        channel_name = f"support_{repo.name.lower()}"
 
-        repo = parsed.path.split("/", maxsplit=1)[-1]
+        channel = await add_textchannel(ctx, channel_name, member, self.support_category_channel)
+        if channel is None:
+            return
 
-        username, repository = repo.split("/")
+        repo.support_channel = channel
+        await repo.save()
+        await ctx.send(f"{channel.mention} has been created!")
 
-        return service, username, repository
+    async def _find_support_channel(
+        self, ctx: commands.GuildContext, repo: Repo, channel: Optional[discord.TextChannel]
+    ) -> Optional[discord.TextChannel]:
+        """
+        Finds existing support channel or uses provided `channel` and saves it to provided `repo`.
+
+        This method provides feedback using `ctx.send()`.
+
+        Returns found channel or `None` if the channel wasn't found.
+        """
+        if channel is None:
+            channel_name = f"support_{repo.name.lower()}"
+            for channel in ctx.guild.text_channels:
+                if channel.name == channel_name:
+                    break
+            else:
+                return None
+
+        if (result := await self._fix_support_channel(ctx, channel)) is True:
+            msg = f"Existing channel ({channel.mention}) moved to the V3 support category."
+        elif result is False:
+            msg = "I wasn't able to move the support channel to V3 support category."
+        else:
+            msg = (
+                f"Support channel for {repo.name} from {repo.username}"
+                f" set to {channel.mention}."
+            )
+
+        repo.support_channel = channel
+        await repo.save()
+        await ctx.send(msg)
+
+        return channel
+
+    async def _fix_support_channel(
+        self, ctx: commands.GuildContext, channel: discord.TextChannel
+    ) -> Optional[bool]:
+        """Changes channel's category if needed.
+
+        This method DOES NOT provide feedback using `ctx.send()`.
+
+        Returns:
+        - `False` on failure
+        - `True` on success
+        - `None` if the method didn't need to do anything
+        """
+        if channel.category == self.support_category_channel:
+            return None
+
+        if not self.support_category_channel.permissions_for(ctx.me).manage_channels:
+            return False
+
+        try:
+            await channel.edit(
+                category=self.support_category_channel,
+                reason="Moving channel to V3 support category",
+            )
+        except discord.Forbidden:
+            return False
+        return True

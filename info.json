@@ -1,0 +1,10 @@
+{
+    "name": "cogsupport-cogs",
+    "short": "Repository for Cog Support server management cog. Not for general use.",
+    "description": "Repository for Cog Support server management cog. This repo is not for general use, cogs in here are only meant to be used in Cog Support server.",
+    "install_msg": "If you're not member of Cog-Creators organisation, you probably shouldn't have installed this cog in the first place.",
+    "author": [
+        "palmtree5 (Palm__#0873)",
+        "jack1142 (Jackenmen#6607)"
+    ]
+}
