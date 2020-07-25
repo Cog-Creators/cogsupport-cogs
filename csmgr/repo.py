@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union, overload
+from typing import Any, Dict, List, Optional, Tuple, Union, overload
 
 import discord
 from redbot.core.bot import Red
@@ -59,7 +59,11 @@ class Repo:
             raise commands.BadArgument("Repo with this name doesn't exist for given member.")
 
     async def save(self) -> None:
-        await self.config.custom("REPO", str(self.user_id), self.name).set(self.to_dict())
+        await self.config.custom("REPO", *self.config_identifiers).set(self.to_dict())
+
+    @property
+    def config_identifiers(self) -> Tuple[str, str]:
+        return str(self.user_id), self.name.lower()
 
     @static_property
     def config() -> Config:  # type: ignore[misc]
@@ -87,17 +91,18 @@ class Repo:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "repo_name": self.name,
             "repo_url": self.url,
             "creator_level": self.creator_level.value,
             "support_channel_id": self.support_channel_id,
         }
 
     @classmethod
-    def from_dict(cls, bot: Red, user_id: int, repo_name: str, data: Dict[str, Any]) -> Repo:
+    def from_dict(cls, bot: Red, user_id: int, data: Dict[str, Any]) -> Repo:
         return cls(
             bot=bot,
             user_id=user_id,
-            repo_name=repo_name,
+            repo_name=data["repo_name"],
             repo_url=data["repo_url"],
             creator_level=CreatorLevel(data["creator_level"]),
             support_channel_id=data["support_channel_id"],
@@ -131,7 +136,7 @@ class Repo:
             all_users = await cls.config.custom("REPO").all()
             return {
                 int(user_id): [
-                    Repo.from_dict(bot, int(user_id), repo_name, data)
+                    Repo.from_dict(bot, int(user_id), data)
                     for repo_name, data in repos.items()
                 ]
                 for user_id, repos in all_users.items()
@@ -141,11 +146,12 @@ class Repo:
         if repo_name is None:
             repos = await cls.config.custom("REPO", str(user_id)).all()
             return [
-                Repo.from_dict(bot, user_id, repo_name, data) for repo_name, data in repos.items()
+                Repo.from_dict(bot, user_id, data) for repo_name, data in repos.items()
             ]
 
-        repo_data = await cls.config.custom("REPO", str(user_id), repo_name).all()
+        repo_identifiers = (str(user_id), repo_name.lower())
+        repo_data = await cls.config.custom("REPO", *repo_identifiers).all()
         if not repo_data:
             raise KeyError("Repo with given name doesn't exist!")
 
-        return Repo.from_dict(bot, user_id, repo_name, repo_data)
+        return Repo.from_dict(bot, user_id, repo_data)

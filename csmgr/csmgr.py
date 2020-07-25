@@ -35,7 +35,7 @@ class CSMgr(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(None, identifier=CONFIG_IDENTIFIER, cog_name=CONFIG_COG_NAME)
         self.config.register_global(schema_version=0)
-        # {USER_ID: {REPO_NAME: {}}}
+        # {USER_ID: {LOWERED_REPO_NAME: {}}}
         self.config.init_custom("REPO", 2)
         self.config.register_custom("REPO")
         self.session = aiohttp.ClientSession()
@@ -106,7 +106,7 @@ class CSMgr(commands.Cog):
                     support_channel_id=repo_data["channel"] or None,
                 )
 
-                user_repos_to_save[repo_name] = repo.to_dict()
+                user_repos_to_save[repo.config_identifiers[1]] = repo.to_dict()
 
         await self.config.custom("REPO").set(to_save)
         await self.config.clear_all_members()
