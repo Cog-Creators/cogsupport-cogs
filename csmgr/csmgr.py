@@ -7,6 +7,7 @@ import discord
 import yarl
 from redbot.core import commands, Config
 from redbot.core.bot import Red
+from redbot.core.commands import NoParseOptional as Optional
 
 from .checks import is_cog_support_server, is_core_dev_or_qa, is_senior_cog_creator
 from .discord_ids import (
@@ -17,6 +18,7 @@ from .discord_ids import (
     V3_COG_SUPPORT_CATEGORY_ID,
 )
 from .repo import CONFIG_COG_NAME, CONFIG_IDENTIFIER, CreatorLevel, Repo
+from .utils import grouper
 
 log = logging.getLogger("red.cogsupport-cogs.csmgr")
 
@@ -231,8 +233,8 @@ class CSMgr(commands.Cog):
         Make a list of all support channels
         """
         all_users = await Repo.from_config(self.bot)
+        embeds: List[discord.Embed] = []
         for user_id, repos in all_users.items():
-            embeds: List[discord.Embed] = []
             for repo in repos:
                 embed = discord.Embed(title=repo.name)
                 embed.url = repo.url
@@ -245,6 +247,14 @@ class CSMgr(commands.Cog):
                 else:
                     support_channel = self.default_support_channel.mention
                 embed.add_field(name="Support channel", value=support_channel, inline=False)
+                embeds.append(embed)
+
+        webhook = await self._get_webhook(ctx.channel)
+        if webhook is not None:
+            for embed_group in grouper(embeds, 10):
+                await webhook.send(embeds=embed_group)
+        else:
+            for embed in embeds:
                 await ctx.send(embed=embed)
         await ctx.message.delete()
 
@@ -276,6 +286,25 @@ class CSMgr(commands.Cog):
         repo.support_channel = channel
         await repo.save()
         await ctx.send(msg)
+
+    async def _get_webhook(self, channel: discord.TextChannel) -> Optional[discord.Webhook]:
+        guild = channel.guild
+        if not channel.permissions_for(guild.me).manage_webhooks:
+            return None
+        try:
+            webhooks = await channel.webhooks()
+        except discord.Forbidden:
+            return None
+        for webhook in webhooks:
+            if webhook.name == "Cog Support channel guide":
+                break
+        else:
+            webhook = await channel.create_webhook(
+                name="Cog Support channel guide",
+                avatar=await guild.icon_url.read(),
+                reason="Generating channel list",
+            )
+        return webhook
 
     async def add_textchannel(
         self,
