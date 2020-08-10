@@ -1,0 +1,10 @@
+{
+    "author" : ["Flame442 (Flame#2941)", "TrustyJAID"],
+    "install_msg" : "If you're not member of Cog-Creators organisation, you probably shouldn't have installed this cog in the first place.",
+    "name" : "ApprovedUpdator",
+    "short" : "Cog for Cog Support server management. This cog is not for general use, it is only meant to be used in Cog Support server.",
+    "requirements" : [],
+    "description" : "Cog for Cog Support server management. This cog is not for general use, it is only meant to be used in Cog Support server.",
+    "tags" : [],
+    "min_python_version": [3, 6, 0]
+}
