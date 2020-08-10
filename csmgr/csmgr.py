@@ -209,7 +209,7 @@ class CSMgr(commands.Cog):
         await self._find_support_channel(ctx, repo, channel)
         await repo.save()
 
-        await safe_add_role(ctx, member, self.senior_cog_creator_role)
+        await safe_add_role(ctx, member, self.cog_creator_role)
         await ctx.send(f"Done. {member.mention} is now a cog creator!")
 
     @is_core_dev_or_qa()
