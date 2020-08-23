@@ -87,3 +87,19 @@ async def safe_add_role(
         await member.add_roles(role)
     except (discord.Forbidden, RuntimeError):
         await ctx.send(f"I wasn't able to add {role.name} role.")
+
+
+async def safe_remove_role(
+    ctx: commands.Context, member: discord.Member, role: discord.Role
+) -> None:
+    """
+    Removes a role from given member without raising.
+
+    This function provides feedback using `ctx.send()`.
+    """
+    try:
+        if not ctx.me.guild_permissions.manage_roles:
+            raise RuntimeError
+        await member.remove_roles(role)
+    except (discord.Forbidden, RuntimeError):
+        await ctx.send(f"I wasn't able to remove {role.name} role.")

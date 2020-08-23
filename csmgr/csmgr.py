@@ -1,7 +1,8 @@
 import asyncio
+from collections import namedtuple
 import logging
 import math
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 import aiohttp
 import discord
@@ -17,8 +18,9 @@ from .discord_ids import (
     OTHERCOGS_ID,
     SENIOR_COG_CREATOR_ROLE_ID,
     V3_COG_SUPPORT_CATEGORY_ID,
+    CHANNEL_ARCHIVE_ID,
 )
-from .discord_utils import add_textchannel, get_webhook, safe_add_role
+from .discord_utils import add_textchannel, get_webhook, safe_add_role, safe_remove_role
 from .repo import CONFIG_COG_NAME, CONFIG_IDENTIFIER, CreatorLevel, Repo
 from .utils import grouper, parse_repo_url
 
@@ -211,6 +213,43 @@ class CSMgr(commands.Cog):
 
         await safe_add_role(ctx, member, self.cog_creator_role)
         await ctx.send(f"Done. {member.mention} is now a cog creator!")
+    
+    @is_core_dev_or_qa()
+    @commands.command()
+    async def removecreator(self, ctx: commands.Context, user: Union[discord.Member, int]) -> None:
+        """
+        Unregister a cog creator
+        """
+        if not isinstance(user, discord.Member):
+            user_id = user
+            user = ctx.bot.get_user(user_id)
+            if not user:
+                try:
+                    user = await ctx.bot.fetch_user(user_id)
+                except discord.NotFound:
+                    return await ctx.send("User not found for that user id.")
+                except discord.HTTPException:
+                    return await ctx.send("Something went wrong while fetching the user.")
+        data = await self.config.custom("REPO", user.id).all()
+        if not data:
+            return await ctx.send("That user is not marked as a cog creator.")
+        
+        # Remove the user's roles, if they're still in the server
+        if isinstance(user, discord.Member):
+            await safe_remove_role(ctx, user, COG_CREATOR_ROLE_ID)
+            await safe_remove_role(ctx, user, SENIOR_COG_CREATOR_ROLE_ID)
+        
+        # Archive their support channel(s)
+        for name, repodata in data.items():
+            repo = Repo(**repodata)
+            support_channel = repo.support_channel
+            if not support_channel:
+                continue
+            archive_cat = ctx.guild.get_channel(CHANNEL_ARCHIVE_ID)
+            if support_channel.category_id != CHANNEL_ARCHIVE_ID:
+                await support_channel.edit(category=archive_cat)
+        await self.config.custom("REPO").clear_raw(user.id)  # Remove their data
+        await ctx.send("Creator removal successful.")
 
     @is_core_dev_or_qa()
     @commands.command()
