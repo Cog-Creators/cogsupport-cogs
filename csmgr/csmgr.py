@@ -220,18 +220,11 @@ class CSMgr(commands.Cog):
         """
         Unregister a cog creator
         """
-        if not isinstance(user, discord.Member):
+        if isinstance(user, discord.Member):
+            user_id = user.id
+        else:
             user_id = user
-            user = ctx.bot.get_user(user_id)
-            if not user:
-                try:
-                    user = await ctx.bot.fetch_user(user_id)
-                except discord.NotFound:
-                    return await ctx.send("User not found for that user id.")
-                except discord.HTTPException:
-                    return await ctx.send("Something went wrong while fetching the user.")
-        data = await self.config.custom("REPO", user.id).all()
-        if not data:
+        if not await self.config.custom("REPO", user_id).all():
             return await ctx.send("That user is not marked as a cog creator.")
         
         # Remove the user's roles, if they're still in the server
@@ -240,15 +233,14 @@ class CSMgr(commands.Cog):
             await safe_remove_role(ctx, user, SENIOR_COG_CREATOR_ROLE_ID)
         
         # Archive their support channel(s)
-        for name, repodata in data.items():
-            repo = Repo(**repodata)
+        for repo in self.get_user_repos(user_id)
             support_channel = repo.support_channel
             if not support_channel:
                 continue
             archive_cat = ctx.guild.get_channel(CHANNEL_ARCHIVE_ID)
             if support_channel.category_id != CHANNEL_ARCHIVE_ID:
                 await support_channel.edit(category=archive_cat)
-        await self.config.custom("REPO").clear_raw(user.id)  # Remove their data
+        await self.config.custom("REPO").clear_raw(user_id)  # Remove their data
         await ctx.send("Creator removal successful.")
 
     @is_core_dev_or_qa()
