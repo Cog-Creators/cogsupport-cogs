@@ -1,5 +1,4 @@
 import asyncio
-from collections import namedtuple
 import logging
 import math
 from typing import Any, Dict, List, Union
