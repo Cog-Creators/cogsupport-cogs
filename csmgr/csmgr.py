@@ -224,7 +224,8 @@ class CSMgr(commands.Cog):
             user_id = user.id
         else:
             user_id = user
-        if not await self.config.custom("REPO", user_id).all():
+        repos = await self.get_user_repos(user_id)
+        if not repos:
             return await ctx.send("That user is not marked as a cog creator.")
         
         # Remove the user's roles, if they're still in the server
@@ -233,7 +234,7 @@ class CSMgr(commands.Cog):
             await safe_remove_role(ctx, user, SENIOR_COG_CREATOR_ROLE_ID)
         
         # Archive their support channel(s)
-        for repo in await self.get_user_repos(user_id)
+        for repo in repos:
             support_channel = repo.support_channel
             if not support_channel:
                 continue
