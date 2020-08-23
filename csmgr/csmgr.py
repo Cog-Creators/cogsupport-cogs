@@ -219,6 +219,8 @@ class CSMgr(commands.Cog):
     async def removecreator(self, ctx: commands.Context, user: Union[discord.Member, int]) -> None:
         """
         Unregister a cog creator
+
+        User can be a user id if the user is not in the server
         """
         if isinstance(user, discord.Member):
             user_id = user.id
