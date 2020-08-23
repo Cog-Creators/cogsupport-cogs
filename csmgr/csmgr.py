@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import math
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 import aiohttp
 import discord
@@ -17,8 +17,9 @@ from .discord_ids import (
     OTHERCOGS_ID,
     SENIOR_COG_CREATOR_ROLE_ID,
     V3_COG_SUPPORT_CATEGORY_ID,
+    CHANNEL_ARCHIVE_ID,
 )
-from .discord_utils import add_textchannel, get_webhook, safe_add_role
+from .discord_utils import add_textchannel, get_webhook, safe_add_role, safe_remove_role
 from .repo import CONFIG_COG_NAME, CONFIG_IDENTIFIER, CreatorLevel, Repo
 from .utils import grouper, parse_repo_url
 
@@ -135,6 +136,10 @@ class CSMgr(commands.Cog):
     @property
     def support_category_channel(self) -> discord.CategoryChannel:
         return self.bot.get_channel(V3_COG_SUPPORT_CATEGORY_ID)
+    
+    @property
+    def archive_category_channel(self) -> discord.CategoryChannel:
+        return self.bot.get_channel(CHANNEL_ARCHIVE_ID)
 
     @property
     def cog_creator_role(self):
@@ -211,6 +216,37 @@ class CSMgr(commands.Cog):
 
         await safe_add_role(ctx, member, self.cog_creator_role)
         await ctx.send(f"Done. {member.mention} is now a cog creator!")
+    
+    @is_core_dev_or_qa()
+    @commands.command()
+    async def removecreator(self, ctx: commands.Context, user: Union[discord.Member, int]) -> None:
+        """
+        Unregister a cog creator
+
+        User can be a user id if the user is not in the server
+        """
+        if isinstance(user, discord.Member):
+            user_id = user.id
+        else:
+            user_id = user
+        repos = await self.get_user_repos(user_id)
+        if not repos:
+            return await ctx.send("That user is not marked as a cog creator.")
+        
+        # Remove the user's roles, if they're still in the server
+        if isinstance(user, discord.Member):
+            await safe_remove_role(ctx, user, self.cog_creator_role)
+            await safe_remove_role(ctx, user, self.senior_cog_creator_role)
+        
+        # Archive their support channel(s)
+        for repo in repos:
+            support_channel = repo.support_channel
+            if not support_channel:
+                continue
+            if support_channel.category_id != CHANNEL_ARCHIVE_ID:
+                await support_channel.edit(category=self.archive_category_channel)
+        await self.config.custom("REPO").clear_raw(user_id)  # Remove their data
+        await ctx.send("Creator removal successful.")
 
     @is_core_dev_or_qa()
     @commands.command()
