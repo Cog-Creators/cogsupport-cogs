@@ -235,8 +235,8 @@ class CSMgr(commands.Cog):
         
         # Remove the user's roles, if they're still in the server
         if isinstance(user, discord.Member):
-            await safe_remove_role(ctx, user, COG_CREATOR_ROLE_ID)
-            await safe_remove_role(ctx, user, SENIOR_COG_CREATOR_ROLE_ID)
+            await safe_remove_role(ctx, user, self.cog_creator_role)
+            await safe_remove_role(ctx, user, self.senior_cog_creator_role)
         
         # Archive their support channel(s)
         for repo in repos:
