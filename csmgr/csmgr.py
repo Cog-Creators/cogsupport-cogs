@@ -136,6 +136,10 @@ class CSMgr(commands.Cog):
     @property
     def support_category_channel(self) -> discord.CategoryChannel:
         return self.bot.get_channel(V3_COG_SUPPORT_CATEGORY_ID)
+    
+    @property
+    def archive_category_channel(self) -> discord.CategoryChannel:
+        return self.bot.get_channel(CHANNEL_ARCHIVE_ID)
 
     @property
     def cog_creator_role(self):
@@ -239,9 +243,8 @@ class CSMgr(commands.Cog):
             support_channel = repo.support_channel
             if not support_channel:
                 continue
-            archive_cat = ctx.guild.get_channel(CHANNEL_ARCHIVE_ID)
             if support_channel.category_id != CHANNEL_ARCHIVE_ID:
-                await support_channel.edit(category=archive_cat)
+                await support_channel.edit(category=self.archive_category_channel)
         await self.config.custom("REPO").clear_raw(user_id)  # Remove their data
         await ctx.send("Creator removal successful.")
 
