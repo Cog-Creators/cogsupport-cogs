@@ -233,7 +233,7 @@ class CSMgr(commands.Cog):
             await safe_remove_role(ctx, user, SENIOR_COG_CREATOR_ROLE_ID)
         
         # Archive their support channel(s)
-        for repo in self.get_user_repos(user_id)
+        for repo in await self.get_user_repos(user_id)
             support_channel = repo.support_channel
             if not support_channel:
                 continue
