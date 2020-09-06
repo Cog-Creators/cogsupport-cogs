@@ -1,102 +1,54 @@
 import discord
 import aiohttp
 import asyncio
-import functools
 from redbot.core import commands
 from redbot.core import checks
 from redbot.core import Config
-from redbot.core.data_manager import cog_data_path
-import git
-import json
-import os
-import glob
-import stat
 import errno
-from typing import List, Mapping
-from dataclasses import dataclass
 from io import StringIO
 import time
-import difflib
-from shutil import rmtree
 
-@dataclass
-class InfoJson:
-	author: List[str]
-	description: str
-	install_msg: str
-	short: str
-	name: str
-	bot_version: List[int]
-	hidden: bool
-	disabled: bool
-	required_cogs: Mapping[str, str]
-	requirements: List[str]
-	tags: List[str]
-	type: str
-	permissions: list
-	min_python_version: list
 
-	@classmethod
-	def from_json(cls, data: dict):
-		author = []
-		description = ""
-		install_msg = "Thanks for installing"
-		short = "Thanks for installing"
-		bot_version = [3, 0, 0]
-		name = ""
-		required_cogs = ()
-		requirements = []
-		tags = []
-		hidden = False
-		disabled = False
-		type = "COG"
-		permissions = []
-		min_python_version = []
-		if "author" in data:
-			author = data["author"]
-		if "description" in data:
-			description = data["description"]
-		if "install_msg" in data:
-			install_msg = data["install_msg"]
-		if "short" in data:
-			short = data["short"]
-		if "bot_version" in data:
-			bot_version = data["bot_version"]
-		if "name" in data:
-			name = data["name"]
-		if "required_cogs" in data:
-			required_cogs = data["required_cogs"]
-		if "requirements" in data:
-			requirements = data["requirements"]
-		if "tags" in data:
-			tags = data["tags"]
-		if "hidden" in data:
-			hidden = data["hidden"]
-		if "disabled" in data:
-			disabled = data["disabled"]
-		if "type" in data:
-			type = data["type"]
-		if "permissions" in data:
-			permissions = data["permissions"]
-		if "min_python_version" in data:
-			min_python_version = data["min_python_version"]
+IX_PROTOCOL = 1
+CC_INDEX_LINK = f"https://raw.githubusercontent.com/Cog-Creators/Red-Index/master/index/{IX_PROTOCOL}-min.json"
 
-		return cls(
-			author,
-			description,
-			install_msg,
-			short,
-			name,
-			bot_version,
-			hidden,
-			disabled,
-			required_cogs,
-			requirements,
-			tags,
-			type,
-			permissions,
-			min_python_version,
-		)
+
+class Repo:
+	def __init__(self, url: str, raw_data: dict):
+		self.url = url
+		self.approved = 'approved' == raw_data.get("rx_category", "unapproved")
+		self.author = raw_data.get("author", ["Unknown"])
+		self.description = raw_data.get("description", "")
+		self.short = raw_data.get("short", "")
+		self.name = raw_data.get("name", "Unknown")
+		self.branch = raw_data.get("rx_branch", "")
+		self.cogs = []
+		for cog_name, cog_raw in raw_data["rx_cogs"].items():
+			if cog_raw.get("hidden", False) or cog_raw.get("disabled", False):
+				continue
+			self.cogs.append(Cog(cog_name, self, cog_raw))
+	
+	def to_raw(self):
+		result = vars(self).copy()
+		cogs = []
+		for c in result['cogs']:
+			c = vars(c).copy()
+			c.pop('repo', None)
+			cogs.append(c)
+		del result['cogs']
+		result['rx_cogs'] = cogs
+		return result
+		
+class Cog:
+	def __init__(self, name: str, repo: Repo, raw_data: dict):
+		self.name = name
+		self.author = raw_data.get("author", ["Unknown"])
+		self.description = raw_data.get("description", "")
+		self.short = raw_data.get("short", "")
+		self.hidden = False
+		self.disabled = False
+		self.repo = repo
+
 
 class ApprovedUpdater(commands.Cog):
 	"""
@@ -109,8 +61,7 @@ class ApprovedUpdater(commands.Cog):
 		self.bot = bot
 		self.config = Config.get_conf(self, identifier=145519400223506432)
 		self.config.register_global(
-			last_string = '',
-			repos = []
+			lastRaw = []
 		)
 		self.last_check = time.time()
 		
@@ -125,113 +76,98 @@ class ApprovedUpdater(commands.Cog):
 	async def get(self, ctx):
 		"""Get the string needed to update the approved repository list."""
 		async with ctx.typing():
-			msg = await self.build_string(ctx)
+			repos = await self._get_repos()
+			msg = await self._build_string(repos)
 		file = StringIO(msg)
 		file.name = 'result.txt'
 		await ctx.send(file=discord.File(file))
 		self.last_check = time.time()
 		await self.config.last_string.set(msg)
-
-	@aru.command()
-	async def add(self, ctx, url, branch=None):
-		"""Add a new repo."""
-		async with self.config.repos() as repos:
-			if url in (repo[0] for repo in repos):
-				return await ctx.send('That repo has already been added.')
-			repos.append([url, branch])
-		await ctx.send('Added.')
 	
-	@aru.command()
-	async def rem(self, ctx, url):
-		"""Remove an existing repo."""
-		async with self.config.repos() as repos:
-			repo_links = [repo[0] for repo in repos]
-			if url not in repo_links:
-				return await ctx.send('That repo does not exist')
-			index = repo_links.index(url)
-			repos.remove(repos[index])
-		await ctx.send('Removed.')
+	async def _get_repos(self):
+		"""Get the Repo objects of approved repos."""
+		repos = []
+		async with aiohttp.ClientSession() as session:
+			async with session.get(CC_INDEX_LINK) as r:
+				if r.status != 200:
+					raise RuntimeError(f'Could not fetch index. HTTP code: {r.status}')
+				raw = await r.json(content_type=None)
+		for url, data in raw.items():
+			repos.append(Repo(url, data))
+		return [r for r in repos if r.approved]
 	
-	@aru.command()
-	async def list(self, ctx):
-		"""List the current repos."""
-		repos = await self.config.repos()
-		msg = ''
+	async def _build_string(self, repos: list):
+		"""Build the cogboard string from a list of Repos."""
+		master = ''
 		for repo in repos:
-			msg += f'{repo[0]} {repo[1] if repo[1] else ""}\n'
-		await ctx.send(f'```\n{msg}```')
-	
-	async def build_string(self, ctx=None):
-		if ctx: #channel here is ONLY for error logging, do NOT use the cog server channel
-			channel = ctx.channel
-		else:
-			channel = self.bot.get_channel(598626368665813005)
-		master = ""
-		PATH = cog_data_path(self) / 'temp'
-		repo_list = await self.config.repos()
-		if ctx:
-			message = await ctx.send('Creating an updated approved repository list.')
-			n = 0
-		for repos in repo_list:
-			repo_name = repos[0].split("/")[-1]
-			if ctx:
-				n += 1
-				await message.edit(content=(
-					'Creating an updated approved repository list.\n\n'
-					f'Downloading **{repo_name}** ({n}/{len(repo_list)})'
-				))
-			try:
-				if repos[1]:
-					task = functools.partial(git.Git(PATH).clone, repos[0], branch=repos[1])
-				else:
-					task = functools.partial(git.Git(PATH).clone, repos[0])
-				task = self.bot.loop.run_in_executor(None, task)
-				repo_data = await asyncio.wait_for(task, timeout=180)
-			except asyncio.TimeoutError:
-				print(f'ApprovedUpdater timed out trying to download repo "{repo_name}"')
-				await channel.send(f'ApprovedUpdater timed out trying to download repo `{repo_name}`')
-			except git.exc.GitCommandError:
-				pass
-			except Exception as e:
-				print(f'ApprovedUpdater errored trying to download repo "{repo_name}":\n{e}')
-				await channel.send(f'ApprovedUpdater errored trying to download repo `{repo_name}`:\n`{e}`')
-			await asyncio.sleep(0)
-		def handleRemoveReadonly(func, path, exc):
-			"""https://stackoverflow.com/questions/1213706/what-user-do-python-scripts-run-as-in-windows"""
-			excvalue = exc[1]
-			if func in (os.rmdir, os.unlink, os.remove) and excvalue.errno == errno.EACCES:
-				os.chmod(path, stat.S_IRWXU| stat.S_IRWXG| stat.S_IRWXO) # 0777
-				func(path)
-			else:
-				raise
-		if ctx:
-			await message.edit(content=(
-				'Creating an updated approved repository list.\n\n'
-				'Building strings...'
-			))
-		for repo in repo_list:
-			repo_name = repo[0].split("/")[-1]
-			master += f"_____________________________\n**{repo_name}**\nRepo Link: {repo[0]}\n"
-			if repo[1]:
-				master += f'Branch: {repo[1]}\n'
+			master += f'_____________________________\n**{repo.name}**\nRepo Link: {repo.url}\n'
+			if repo.branch:
+				master += f'Branch: {repo.branch}\n'
 			master += '\n'
-			for cog_data in glob.glob(f"{PATH}/{repo_name}/**/info.json"):
-				try:
-					with open(cog_data, encoding='utf-8') as infile:
-						data = json.loads(infile.read())
-					cog = InfoJson.from_json(data)
-					name = cog_data.split("\\")[-2]
-					if not (cog.hidden or cog.disabled):
-						master += f"+ {name}: {cog.short}\n"
-					await asyncio.sleep(0)
-				except json.decoder.JSONDecodeError as e:
-					print(f'ApprovedUpdater errored trying to read a file.\n\nRepo: {repo_name}\nFile: {cog_data}\nError: {e}')
-					await channel.send(f'ApprovedUpdater errored trying to read a file.\n\nRepo: `{repo_name}`\nFile: `{cog_data}`\nError: `{e}`')
-			master += "\n"
-			rmtree(PATH / repo_name, ignore_errors=False, onerror=handleRemoveReadonly)
-		if ctx:
-			await message.delete()
+			for cog in repo.cogs:
+				master += f'+ {cog.name}: {cog.short}\n'
+			master += '\n'
 		return master
+
+	async def _check_changes(self, new: list):
+		result = {}
+		
+		old = await self.config.lastRaw()
+		if old == [r.to_raw() for r in new]:
+			return result
+		old = [Repo(r['url'], r) for r in old]
+		
+		old_repos = set(r.url for r in old)
+		new_repos = set(r.url for r in new)
+		sum_repos = old_repos & new_repos
+		old_repos -= sum_repos
+		new_repos -= sum_repos
+		
+		result['rem_cogs'] = {}
+		result['add_cogs'] = {}
+		
+		if old_repos:
+			result['rem_repos'] = []
+			for r in old_repos:
+				repo = [x for x in old if x.url == r][0]
+				result['rem_repos'].append(repo)
+				result['rem_cogs'][repo] = repo.cogs
+		if new_repos:
+			result['add_repos'] = []
+			for r in new_repos:
+				repo = [x for x in new if x.url == r][0]
+				result['add_repos'].append(repo)
+				result['add_cogs'][repo] = repo.cogs
+		
+		for new_repo in new:
+			#new repo, already handled
+			if new_repo not in sum_repos:
+				continue
+			old_repo = [x for x in old_repos if x.url == new_repo.url][0]
+			
+			old_cogs = set(r.name for r in old_repo.cogs)
+			new_cogs = set(r.name for r in new_repo.cogs)
+			sum_cogs = old_cogs & new_cogs
+			old_cogs -= sum_cogs
+			new_cogs -= sum_cogs
+			
+			if old_cogs:
+				result['rem_cogs'][new_repo] = []
+				for c in old_cogs:
+					cog = [x for x in old_repo.cogs if x.name == c][0]
+					result['rem_cogs'][new_repo].append(cog)
+			if new_cogs:
+				result['add_cogs'][new_repo] = []
+				for c in new_cogs:
+					cog = [x for x in new_repo.cogs if x.name == c][0]
+					result['add_cogs'][new_repo].append(cog)
+				
+		if not result['rem_cogs']:
+			del result['rem_cogs']
+		if not result['add_cogs']:
+			del result['add_cogs']
+		
+		return result
 	
 	@commands.Cog.listener()
 	async def on_message(self, message):
@@ -240,20 +176,38 @@ class ApprovedUpdater(commands.Cog):
 		self.last_check = time.time()
 		ts = lambda: time.strftime('%I:%M:%S %p', time.localtime())
 		print(f'[{ts()}] [ApprovedUpdater] Started check.')
-		string = await self.build_string()
+		repos = await self._get_repos()
+		changes = await self._check_changes(repos)
 		print(f'[{ts()}] [ApprovedUpdater] Finished check. Took {round(time.time() - self.last_check, 2)} seconds.')
-		last = await self.config.last_string()
-		if string == last:
+		if not changes:
 			return
-		print()
-		await self.config.last_string.set(string)
-		diff = f'[{ts()}] [ApprovedUpdater] Update required!'
-		print(diff)
-		for line in difflib.unified_diff(last.split('\n'), string.split('\n')):
-			diff += line + '\n'
+		last = await self.config.lastRaw.set([r.to_raw() for r in repos])
+		diff = ''
+		if 'add_repos' in changes:
+			diff += '\nAdded repos\n-----------\n'
+			for repo in changes['add_repos']:
+				diff += f'+ {repo.name} - {repo.short}\n'
+		if 'rem_repos' in changes:
+			diff += '\nRemoved repos\n-------------\n'
+			for repo in changes['rem_repos']:
+				diff += f'- {repo.name} - {repo.short}\n'
+		if 'add_cogs' in changes:
+			diff += '\nAdded cogs\n----------\n'
+			for repo in changes['add_cogs']:
+				diff += f'{repo.name}:\n'
+				for cog in changes['add_cogs'][repo]:
+					diff += f'+ {cog.name} - {cog.short}\n'
+		if 'rem_cogs' in changes:
+			diff += '\nRemoved cogs\n------------\n'
+			for repo in changes['rem_cogs']:
+				diff += f'{repo.name}:\n'
+				for cog in changes['rem_cogs'][repo]:
+					diff += f'- {cog.name} - {cog.short}\n'
+
 		channel = self.bot.get_channel(598626368665813005)
+		print(f'[{ts()}] [ApprovedUpdater] Update required!\n')
+		print(diff)
 		diff = diff[:1954]
 		await channel.send(f'The cogboard needs to be updated!\n```diff\n{diff}```'[:2000])
 		cog_server_channel = self.bot.get_channel(723262416766500937)
 		await cog_server_channel.send(f'```diff\n{diff}```'[:2000])
-			
