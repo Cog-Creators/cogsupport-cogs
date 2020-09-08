@@ -23,10 +23,14 @@ class Repo:
 		self.name = raw_data.get("name", "Unknown")
 		self.branch = raw_data.get("rx_branch", "")
 		self.cogs = []
-		for cog_name, cog_raw in raw_data["rx_cogs"].items():
-			if cog_raw.get("hidden", False) or cog_raw.get("disabled", False):
-				continue
-			self.cogs.append(Cog(cog_name, self, cog_raw))
+		if isinstance(raw_data["rx_cogs"], dict):
+			for cog_name, cog_raw in raw_data["rx_cogs"].items():
+				if cog_raw.get("hidden", False) or cog_raw.get("disabled", False):
+					continue
+				self.cogs.append(Cog(cog_name, self, cog_raw))
+		else:
+			for data in raw_data["rx_cogs"]:
+				self.cogs.append(Cog(data['name'], self, data))
 	
 	def to_raw(self):
 		result = vars(self).copy()
@@ -141,9 +145,9 @@ class ApprovedUpdater(commands.Cog):
 		
 		for new_repo in new:
 			#new repo, already handled
-			if new_repo not in sum_repos:
+			if new_repo.url not in sum_repos:
 				continue
-			old_repo = [x for x in old_repos if x.url == new_repo.url][0]
+			old_repo = [x for x in old if x.url == new_repo.url][0]
 			
 			old_cogs = set(r.name for r in old_repo.cogs)
 			new_cogs = set(r.name for r in new_repo.cogs)
