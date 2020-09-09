@@ -214,4 +214,5 @@ class ApprovedUpdater(commands.Cog):
 		diff = diff[:1954]
 		await channel.send(f'The cogboard needs to be updated!\n```diff\n{diff}```'[:2000])
 		cog_server_channel = self.bot.get_channel(723262416766500937)
-		await cog_server_channel.send(f'```diff\n{diff}```'[:2000])
+		m = await cog_server_channel.send(f'```diff\n{diff}```'[:2000])
+		await m.publish()
