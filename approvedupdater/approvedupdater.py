@@ -11,6 +11,41 @@ import time
 
 IX_PROTOCOL = 1
 CC_INDEX_LINK = f"https://raw.githubusercontent.com/Cog-Creators/Red-Index/master/index/{IX_PROTOCOL}-min.json"
+SORT_ORDER = [
+	'https://github.com/bobloy/Fox-V3',
+	'https://github.com/Jintaku/Jintaku-Cogs-V3',
+	'https://github.com/skeith/MayuYukirin',
+	'https://github.com/nmbook/FalcomBot-cogs',
+	'https://github.com/tmercswims/tmerc-cogs',
+	'https://github.com/zephyrkul/FluffyCogs',
+	'https://github.com/aikaterna/aikaterna-cogs',
+	'https://github.com/Redjumpman/Jumper-Plugins',
+	'https://github.com/TrustyJAID/Trusty-cogs',
+	'https://github.com/crossedfall/crossed-cogs',
+	'https://github.com/Tobotimus/Tobo-Cogs',
+	'https://github.com/Flame442/FlameCogs',
+	'https://github.com/WildStriker/WildCogs',
+	'https://github.com/dualmoon/Cogs.v3',
+	'https://github.com/palmtree5/palmtree5-cogs',
+	'https://github.com/designbyadrian/CogsByAdrian',
+	'https://gitlab.com/Eragon5779/TechCogsV3',
+	'https://github.com/PhasecoreX/PCXCogs',
+	'https://github.com/Malarne/discord_cogs',
+	'https://github.com/retke/Laggrons-Dumb-Cogs',
+	'https://github.com/fixator10/Fixator10-Cogs',
+	'https://github.com/flaree/Flare-Cogs',
+	'https://github.com/elijabesu/SauriCogs',
+	'https://github.com/PredaaA/predacogs',
+	'https://github.com/NeuroAssassin/Toxic-Cogs',
+	'https://github.com/kennnyshiwa/kennnyshiwa-cogs',
+	'https://github.com/jack1142/JackCogs',
+	'https://github.com/synrg/dronefly',
+	'https://github.com/Dav-Git/Dav-Cogs',
+	'https://gitlab.com/CrunchBangDev/cbd-cogs',
+	'https://github.com/grayconcaves/FanCogs',
+	'https://github.com/flapjax/FlapJack-Cogs',
+	'https://github.com/Predeactor/Predeactor-Cogs',
+]
 
 
 class Repo:
@@ -103,6 +138,7 @@ class ApprovedUpdater(commands.Cog):
 	async def _build_string(self, repos: list):
 		"""Build the cogboard string from a list of Repos."""
 		master = ''
+		repos = sorted(repos, key=self._sort_repos)
 		for repo in repos:
 			master += f'_____________________________\n**{repo.name}**\nRepo Link: {repo.url}\n'
 			if repo.branch:
@@ -113,7 +149,16 @@ class ApprovedUpdater(commands.Cog):
 			master += '\n'
 		return master
 
+	@staticmethod
+	def _sort_repos(repos):
+		"""Sort the repos based on the order of application."""
+		try:
+			return SORT_ORDER.index(repos.url)
+		except ValueError:
+			return 999999999999
+	
 	async def _check_changes(self, new: list):
+		"""Check for changes since the last check and build a diff."""
 		result = {}
 		
 		old = await self.config.lastRaw()
