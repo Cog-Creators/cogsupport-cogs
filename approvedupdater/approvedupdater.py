@@ -45,6 +45,9 @@ SORT_ORDER = [
 	'https://github.com/grayconcaves/FanCogs',
 	'https://github.com/flapjax/FlapJack-Cogs',
 	'https://github.com/Predeactor/Predeactor-Cogs',
+	'https://github.com/phenom4n4n/phen-cogs',
+	'https://github.com/SharkyTheKing/Sharky',
+	'https://github.com/Twentysix26/x26-Cogs',
 ]
 
 
@@ -235,7 +238,7 @@ class ApprovedUpdater(commands.Cog):
 		if 'add_repos' in changes:
 			diff += '\nAdded repos\n-----------\n'
 			for repo in changes['add_repos']:
-				diff += f'+ {repo.name} - {repo.short}\n'
+				diff += f'+ {repo.name} - {repo.short}\n{repo.url}\n'
 		if 'rem_repos' in changes:
 			diff += '\nRemoved repos\n-------------\n'
 			for repo in changes['rem_repos']:
