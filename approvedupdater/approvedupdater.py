@@ -53,7 +53,7 @@ SORT_ORDER = [
    	'https://github.com/flaree/pokecord-red',
    	'https://github.com/TheWyn/Wyn-RedV3Cogs',
    	'https://github.com/Kreusada/Kreusada-Cogs',
-    'https://github.com/Obi-Wan3/OB13-Cogs',
+        'https://github.com/Obi-Wan3/OB13-Cogs',
 ]
 
 
