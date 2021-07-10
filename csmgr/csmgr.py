@@ -168,7 +168,7 @@ class CSMgr(commands.Cog):
                     name=repo.name,
                     value=(
                         f"**Creator:**\n{repo.username}\n"
-                        f"**Creator level:**\n{repo.creator_level.title()!s}\n"
+                        f"**Creator level:**\n{repo.creator_level.title()}\n"
                         f"**Support channel:**\n{support_channel}\n"
                         f"[Repo link]({repo.url})"
                     ),
