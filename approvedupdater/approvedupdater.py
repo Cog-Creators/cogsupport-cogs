@@ -47,12 +47,12 @@ SORT_ORDER = [
 	'https://github.com/phenom4n4n/phen-cogs',
 	'https://github.com/SharkyTheKing/Sharky',
 	'https://github.com/Twentysix26/x26-Cogs',
-   	'https://github.com/Kowlin/Sentinel',
-   	'https://github.com/yamikaitou/YamiCogs',
-   	'https://github.com/flaree/pokecord-red',
-   	'https://github.com/TheWyn/Wyn-RedV3Cogs',
-   	'https://github.com/Kreusada/Kreusada-Cogs',
-        'https://github.com/Obi-Wan3/OB13-Cogs',
+	'https://github.com/Kowlin/Sentinel',
+	'https://github.com/yamikaitou/YamiCogs',
+	'https://github.com/flaree/pokecord-red',
+	'https://github.com/TheWyn/Wyn-RedV3Cogs',
+	'https://github.com/Kreusada/Kreusada-Cogs',
+	'https://github.com/Obi-Wan3/OB13-Cogs',
 	'https://github.com/npc203/npc-cogs',
 ]
 
