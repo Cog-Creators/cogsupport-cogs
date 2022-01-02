@@ -31,7 +31,7 @@ SORT_ORDER = [
 	'https://gitlab.com/Eragon5779/TechCogsV3',
 	'https://github.com/PhasecoreX/PCXCogs',
 	'https://github.com/Malarne/discord_cogs',
-	'https://github.com/retke/Laggrons-Dumb-Cogs',
+	'https://github.com/laggron42/Laggrons-Dumb-Cogs',
 	'https://github.com/fixator10/Fixator10-Cogs',
 	'https://github.com/flaree/Flare-Cogs',
 	'https://github.com/elijabesu/SauriCogs',
