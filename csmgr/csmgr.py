@@ -243,8 +243,6 @@ class CSMgr(commands.Cog):
             support_channel = repo.support_channel
             if not support_channel:
                 continue
-            if support_channel.category_id != CHANNEL_ARCHIVE_ID:
-                await support_channel.edit(category=self.archive_category_channel)
         await self.config.custom("REPO").clear_raw(user_id)  # Remove their data
         await ctx.send("Creator removal successful.")
 
