@@ -10,7 +10,7 @@ from redbot.core.bot import Red
 from redbot.core.commands import NoParseOptional as Optional
 from redbot.core.utils.menus import DEFAULT_CONTROLS, menu
 
-from .checks import is_core_dev_or_qa, is_senior_cog_creator
+from .checks import is_org_member, is_senior_cog_creator
 from .discord_ids import (
     COG_CREATOR_ROLE_ID,
     COG_SUPPORT_SERVER_ID,
@@ -149,7 +149,7 @@ class CSMgr(commands.Cog):
     def senior_cog_creator_role(self):
         return self.cog_support_guild.get_role(SENIOR_COG_CREATOR_ROLE_ID)
 
-    @is_core_dev_or_qa()
+    @is_org_member()
     @commands.command()
     async def reposlist(self, ctx: commands.GuildContext) -> None:
         """
@@ -177,7 +177,7 @@ class CSMgr(commands.Cog):
             pages.append(embed)
         await menu(ctx, pages, DEFAULT_CONTROLS)
 
-    @is_core_dev_or_qa()
+    @is_org_member()
     @commands.command()
     async def addcreator(
         self,
@@ -217,7 +217,7 @@ class CSMgr(commands.Cog):
         await safe_add_role(ctx, member, self.cog_creator_role)
         await ctx.send(f"Done. {member.mention} is now a cog creator!")
     
-    @is_core_dev_or_qa()
+    @is_org_member()
     @commands.command()
     async def removecreator(self, ctx: commands.Context, user: Union[discord.Member, int]) -> None:
         """
@@ -246,7 +246,7 @@ class CSMgr(commands.Cog):
         await self.config.custom("REPO").clear_raw(user_id)  # Remove their data
         await ctx.send("Creator removal successful.")
 
-    @is_core_dev_or_qa()
+    @is_org_member()
     @commands.command()
     async def grantsupport(
         self,
@@ -264,7 +264,7 @@ class CSMgr(commands.Cog):
 
         await self._grant_support_channel(ctx, member, repo, channel)
 
-    @is_core_dev_or_qa()
+    @is_org_member()
     @commands.command()
     async def ungrantsupport(
         self, ctx: commands.GuildContext, member: discord.Member, repo: Repo
@@ -280,7 +280,7 @@ class CSMgr(commands.Cog):
         await repo.save()
         await ctx.send(f"Channel for {repo.name} has been ungranted!")
 
-    @is_core_dev_or_qa()
+    @is_org_member()
     @commands.command()
     async def makesenior(
         self, ctx: commands.GuildContext, member: discord.Member, repo: Repo
@@ -315,7 +315,7 @@ class CSMgr(commands.Cog):
         """
         pass
 
-    @is_core_dev_or_qa()
+    @is_org_member()
     @commands.command()
     async def makechannellist(self, ctx: commands.GuildContext) -> None:
         """
