@@ -266,6 +266,22 @@ class CSMgr(commands.Cog):
 
     @is_core_dev_or_qa()
     @commands.command()
+    async def ungrantsupport(
+        self, ctx: commands.GuildContext, member: discord.Member, repo: Repo
+    ) -> None:
+        """
+        Grants this user a support channel. Must already be a cog creator
+        """
+        if repo.support_channel is None:
+            await ctx.send("It appears that repo already doesn't have a channel!")
+            return
+
+        repo.support_channel = None
+        await repo.save()
+        await ctx.send(f"Channel for {repo.name} has been ungranted!")
+
+    @is_core_dev_or_qa()
+    @commands.command()
     async def makesenior(
         self, ctx: commands.GuildContext, member: discord.Member, repo: Repo
     ) -> None:
