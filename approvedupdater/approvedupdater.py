@@ -54,6 +54,9 @@ SORT_ORDER = [
 	'https://github.com/Kreusada/Kreusada-Cogs',
 	'https://github.com/Obi-Wan3/OB13-Cogs',
 	'https://github.com/npc203/npc-cogs',
+	'https://github.com/Vexed01/Vex-Cogs',
+	'https://github.com/flaree/lastfm-red',
+	'https://github.com/Just-Jojo/JojoCogs',
 ]
 
 
