@@ -168,7 +168,7 @@ class CSMgr(commands.Cog):
                     name=repo.name,
                     value=(
                         f"**Creator:**\n{repo.username}\n"
-                        f"**Creator level:**\n{repo.creator_level.title()}\n"
+                        f"**Creator level:**\n{str(repo.creator_level).title()}\n"
                         f"**Support channel:**\n{support_channel}\n"
                         f"[Repo link]({repo.url})"
                     ),
@@ -314,7 +314,7 @@ class CSMgr(commands.Cog):
                 embed = discord.Embed(title=repo.name)
                 embed.url = repo.url
                 embed.set_author(
-                    name=f"{repo.username} - {repo.creator_level.title()!s}",
+                    name=f"{repo.username} - {str(repo.creator_level).title()}",
                     icon_url=discord.Embed.Empty if repo.user is None else repo.user.avatar_url,
                 )
                 if repo.support_channel is not None:
