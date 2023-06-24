@@ -8,7 +8,7 @@ import discord
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.commands import NoParseOptional as Optional
-from redbot.core.utils.menus import DEFAULT_CONTROLS, menu
+from redbot.core.utils.menus import menu
 
 from .checks import is_org_member, is_senior_cog_creator
 from .discord_ids import (
@@ -45,14 +45,12 @@ class CSMgr(commands.Cog):
         # commands in this cog should only run in Cog Support server
         return ctx.guild is not None and ctx.guild.id == COG_SUPPORT_SERVER_ID
 
-    async def initialize(self) -> None:
+    async def cog_load(self) -> None:
         await self._config_migration()
 
-    def cog_unload(self) -> None:
+    async def cog_unload(self) -> None:
         if not self.session.closed:
-            asyncio.create_task(self.session.close())
-
-    __del__ = cog_unload
+            await self.session.close()
 
     async def _config_migration(self) -> None:
         schema_version = await self.config.schema_version()
@@ -175,7 +173,7 @@ class CSMgr(commands.Cog):
                 )
             embed.set_footer(text=f"Page {idx}/{total_pages}")
             pages.append(embed)
-        await menu(ctx, pages, DEFAULT_CONTROLS)
+        await menu(ctx, pages)
 
     @is_org_member()
     @commands.command()
@@ -329,7 +327,7 @@ class CSMgr(commands.Cog):
                 embed.url = repo.url
                 embed.set_author(
                     name=f"{repo.username} - {repo.creator_level!s}",
-                    icon_url=discord.Embed.Empty if repo.user is None else repo.user.avatar_url,
+                    icon_url=None if repo.user is None else repo.user.avatar_url,
                 )
                 if repo.support_channel is not None:
                     support_channel = repo.support_channel.mention
@@ -338,13 +336,11 @@ class CSMgr(commands.Cog):
                 embed.add_field(name="Support channel", value=support_channel, inline=False)
                 embeds.append(embed)
 
-        webhook = await get_webhook(ctx.channel)
-        if webhook is not None:
-            for embed_group in grouper(embeds, 10):
-                await webhook.send(embeds=embed_group)
-        else:
-            for embed in embeds:
-                await ctx.send(embed=embed)
+        messageable = await get_webhook(ctx.channel)
+        if messageable is None:
+            messageable = ctx
+        for embed_group in grouper(embeds, 10):
+            await messageable.send(embeds=embed_group)
 
         if not ctx.channel.permissions_for(ctx.me).manage_messages:
             return

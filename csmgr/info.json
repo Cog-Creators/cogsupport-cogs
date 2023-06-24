@@ -4,8 +4,8 @@
     "description": "Cog for Cog Support server management. This cog is not for general use, it is only meant to be used in Cog Support server.",
     "install_msg": "If you're not member of Cog-Creators organisation, you probably shouldn't have installed this cog in the first place.",
     "author": [
-        "palmtree5 (Palm__#0873)",
-        "jack1142 (Jackenmen#6607)"
+        "palmtree5 (Palm__)",
+        "Jakub Kuczys (Jackenmen)"
     ],
     "required_cogs": {},
     "requirements": [],

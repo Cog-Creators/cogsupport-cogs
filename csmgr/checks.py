@@ -8,13 +8,13 @@ from .discord_ids import (
 
 def is_org_member():
     async def predicate(ctx: commands.Context) -> bool:
-        return ctx.guild.get_role(ORG_MEMBER_ROLE_ID) in ctx.author.roles
+        return ctx.author.get_role(ORG_MEMBER_ROLE_ID) is not None
 
     return commands.check(predicate)
 
 
 def is_senior_cog_creator():
     async def predicate(ctx: commands.Context) -> bool:
-        return ctx.guild.get_role(SENIOR_COG_CREATOR_ROLE_ID) in ctx.author.roles
+        return ctx.author.get_role(SENIOR_COG_CREATOR_ROLE_ID) is not None
 
     return commands.check(predicate)

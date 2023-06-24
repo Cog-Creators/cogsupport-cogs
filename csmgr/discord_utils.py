@@ -19,7 +19,11 @@ async def add_textchannel(
     """
     overwrites = {
         owner: discord.PermissionOverwrite(
-            manage_messages=True, manage_roles=True, manage_webhooks=True, manage_channels=True
+            manage_messages=True,
+            manage_roles=True,
+            manage_webhooks=True,
+            manage_channels=True,
+            manage_threads=True,
         ),
     }
 
