@@ -1,4 +1,4 @@
 from .approvedupdater import ApprovedUpdater
 
-def setup(bot):
-	bot.add_cog(ApprovedUpdater(bot))
+async def setup(bot):
+	await bot.add_cog(ApprovedUpdater(bot))
