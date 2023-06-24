@@ -327,7 +327,7 @@ class CSMgr(commands.Cog):
                 embed.url = repo.url
                 embed.set_author(
                     name=f"{repo.username} - {repo.creator_level!s}",
-                    icon_url=None if repo.user is None else repo.user.avatar_url,
+                    icon_url=repo.user and repo.user.display_avatar.url,
                 )
                 if repo.support_channel is not None:
                     support_channel = repo.support_channel.mention
