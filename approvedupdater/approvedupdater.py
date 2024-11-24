@@ -65,7 +65,6 @@ SORT_ORDER = [
 	'https://github.com/japandotorg/Seina-Cogs',
 	'https://github.com/zhaobenny/bz-cogs',
 	'https://github.com/sravan1946/sravan-cogs',
-
 ]
 
 
