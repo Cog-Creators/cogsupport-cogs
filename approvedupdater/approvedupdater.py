@@ -57,6 +57,14 @@ SORT_ORDER = [
 	'https://github.com/flaree/lastfm-red',
 	'https://github.com/Just-Jojo/JojoCogs',
 	'https://github.com/AAA3A-AAA3A/AAA3A-cogs',
+	'https://github.com/ltzmax/maxcogs',
+	'https://github.com/vertyco/vrt-cogs',
+	'https://github.com/Kuro-Rui/Kuro-Cogs',
+	'https://github.com/i-am-zaidali/cray-cogs',
+	'https://github.com/Mister-42/mr42-cogs',
+	'https://github.com/japandotorg/Seina-Cogs',
+	'https://github.com/zhaobenny/bz-cogs',
+	'https://github.com/sravan1946/sravan-cogs',
 ]
 
 
